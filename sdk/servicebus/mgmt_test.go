@@ -26,7 +26,7 @@ import (
 	"encoding/xml"
 	"time"
 
-	"github.com/Azure/azure-service-bus-go/atom"
+	"github.com/Azure/azure-sdk-for-go/sdk/servicebus/atom"
 	"github.com/Azure/go-autorest/autorest/date"
 )
 

@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Azure/azure-service-bus-go/internal/test"
+	"github.com/Azure/azure-sdk-for-go/sdk/servicebus/internal/test"
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/joho/godotenv"
 	"github.com/stretchr/testify/suite"

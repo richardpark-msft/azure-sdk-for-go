@@ -36,7 +36,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Azure/azure-service-bus-go/internal/test"
+	"github.com/Azure/azure-sdk-for-go/sdk/servicebus/internal/test"
 )
 
 const (

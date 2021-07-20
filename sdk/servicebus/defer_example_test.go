@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Azure/azure-service-bus-go"
+	"github.com/Azure/azure-sdk-for-go/sdk/servicebus"
 )
 
 type RecipeStep struct {

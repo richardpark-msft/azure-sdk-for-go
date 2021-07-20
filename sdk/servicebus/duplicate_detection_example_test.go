@@ -8,7 +8,7 @@ import (
 
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
 
-	"github.com/Azure/azure-service-bus-go"
+	"github.com/Azure/azure-sdk-for-go/sdk/servicebus"
 )
 
 func Example_duplicateMessageDetection() {

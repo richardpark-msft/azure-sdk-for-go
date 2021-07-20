@@ -30,7 +30,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/Azure/azure-service-bus-go/internal/test"
+	"github.com/Azure/azure-sdk-for-go/sdk/servicebus/internal/test"
 )
 
 func (suite *serviceBusSuite) TestQueueSendReceiveWithLock() {

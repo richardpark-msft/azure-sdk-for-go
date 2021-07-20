@@ -1,4 +1,4 @@
-module github.com/Azure/azure-service-bus-go
+module github.com/Azure/azure-sdk-for-go/sdk/servicebus
 
 go 1.12
 
