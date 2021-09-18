@@ -10,6 +10,9 @@ import (
 	"github.com/devigned/tab"
 )
 
+// Version is the semantic version number
+const Version = "0.1.0"
+
 const (
 	// RecoverFmt happens when a link recovers (typically after a detach or network disconnect occurs)
 	RecoverFmt  = "sb.%s.Recover"
@@ -17,12 +20,13 @@ const (
 	SendMessage = "sb.Sender.SendMessage"
 )
 
-func forMessage(ctx context.Context, operationName string, messageID string, sessionID *string) (context.Context, tab.Spanner) {
+func ForMessage(ctx context.Context, operationName string, messageID string, sessionID *string) (context.Context, tab.Spanner) {
 	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
-	attrs := []tab.Attribute{tab.StringAttribute("amqp.message.id", messageID}
-	if m.SessionID != nil {
-		attrs = append(attrs, tab.StringAttribute("amqp.session.id", sessionID))
+	ApplyComponentInfo(span)
+	attrs := []tab.Attribute{tab.StringAttribute("amqp.message.id", messageID)}
+
+	if sessionID != nil {
+		attrs = append(attrs, tab.StringAttribute("amqp.session.id", *sessionID))
 	}
 
 	// if m.GroupSequence != nil {
@@ -32,29 +36,53 @@ func forMessage(ctx context.Context, operationName string, messageID string, ses
 	return ctx, span
 }
 
-func forEntity(ctx context.Context, operationName string, managementPath string) (context.Context, tab.Spanner) {
+func ForEntity(ctx context.Context, operationName string, managementPath string) (context.Context, tab.Spanner) {
 	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
+	ApplyComponentInfo(span)
 	span.AddAttributes(tab.StringAttribute("message_bus.destination", managementPath))
 	return ctx, span
 }
 
-func forSender(ctx context.Context, operationName string, fqdn string) (context.Context, tab.Spanner) {
+func ForSender(ctx context.Context, operationName string, entityPath string, host string) (context.Context, tab.Spanner) {
 	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
+	ApplyComponentInfo(span)
 	span.AddAttributes(
 		tab.StringAttribute("span.kind", "producer"),
-		// TODO: need to check this against lmolkova's spec.
-		tab.StringAttribute("message_bus.destination", fqdn),
+		tab.StringAttribute("message_bus.destination", entityPath),
+		tab.StringAttribute("peer.address", host),
 	)
 	return ctx, span
 }
 
-func forReceiver(ctx context.Context, operationName string, fqdn string) (context.Context, tab.Spanner) {
-	ctx, span := startConsumerSpanFromContext(ctx, operationName)
-	// TODO: need to check this against lmolkova's spec.
-	// oddly enough this was previously just the entityPath. Not sure if that was 
-	// enough info.
-	span.AddAttributes(tab.StringAttribute("message_bus.destination", fqdn))
+func ForReceiver(ctx context.Context, operationName string, entityPath string, host string) (context.Context, tab.Spanner) {
+	ctx, span := StartConsumerSpanFromContext(ctx, operationName)
+	span.AddAttributes(
+		tab.StringAttribute("message_bus.destination", entityPath),
+		tab.StringAttribute("peer.address", host),
+	)
 	return ctx, span
 }
+
+func ApplyComponentInfo(span tab.Spanner) {
+	span.AddAttributes(
+		tab.StringAttribute("component", "github.com/Azure/azure-sdk-for-go"),
+		tab.StringAttribute("version", Version),
+	)
+	// ApplyNetworkInfo(span)
+}
+
+func StartConsumerSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
+	ctx, span := tab.StartSpan(ctx, operationName)
+	ApplyComponentInfo(span)
+	span.AddAttributes(tab.StringAttribute("span.kind", "consumer"))
+	return ctx, span
+}
+
+// func ApplyNetworkInfo(span tab.Spanner) {
+// 	hostname, err := os.Hostname()
+// 	if err == nil {
+// 		span.AddAttributes(
+// 			tab.StringAttribute("peer.hostname", hostname),
+// 		)
+// 	}
+// }

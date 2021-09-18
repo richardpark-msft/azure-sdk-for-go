@@ -17,6 +17,7 @@ import (
 	"github.com/Azure/azure-amqp-common-go/v3/cbs"
 	"github.com/Azure/azure-amqp-common-go/v3/conn"
 	"github.com/Azure/azure-amqp-common-go/v3/sas"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/spans"
 	"github.com/Azure/go-amqp"
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/devigned/tab"
@@ -32,9 +33,6 @@ const (
 	// ___/ /  __/ /   | |/ / // /__/  __/  / /_/ / /_/ (__  )
 	///____/\___/_/    |___/_/ \___/\___/  /_____/\__,_/____/
 	//`
-
-	// Version is the semantic version number
-	Version = "0.10.11"
 
 	rootUserAgent = "/golang-service-bus"
 
@@ -197,7 +195,7 @@ func (ns *Namespace) newClient(ctx context.Context) (*amqp.Client, error) {
 		amqp.ConnSASLAnonymous(),
 		amqp.ConnMaxSessions(65535),
 		amqp.ConnProperty("product", "MSGolangClient"),
-		amqp.ConnProperty("version", Version),
+		amqp.ConnProperty("version", spans.Version),
 		amqp.ConnProperty("platform", runtime.GOOS),
 		amqp.ConnProperty("framework", runtime.Version()),
 		amqp.ConnProperty("user-agent", ns.getUserAgent()),
@@ -221,7 +219,7 @@ func (ns *Namespace) newClient(ctx context.Context) (*amqp.Client, error) {
 		}
 		nConn := websocket.NetConn(context.Background(), wssConn, websocket.MessageBinary)
 
-		return amqp.New(nConn, append(defaultConnOptions, amqp.ConnServerHostname(ns.getHostname()))...)
+		return amqp.New(nConn, append(defaultConnOptions, amqp.ConnServerHostname(ns.GetHostname()))...)
 	}
 
 	return amqp.Dial(ns.getAMQPHostURI(), defaultConnOptions...)
@@ -353,24 +351,24 @@ func (ns *Namespace) NegotiateClaim(ctx context.Context, entityPath string) (fun
 func (ns *Namespace) getWSSHostURI() string {
 	suffix := ns.resolveSuffix()
 	if strings.HasSuffix(suffix, "onebox.windows-int.net") {
-		return fmt.Sprintf("wss://%s:4446/", ns.getHostname())
+		return fmt.Sprintf("wss://%s:4446/", ns.GetHostname())
 	}
-	return fmt.Sprintf("wss://%s/", ns.getHostname())
+	return fmt.Sprintf("wss://%s/", ns.GetHostname())
 }
 
 func (ns *Namespace) getAMQPHostURI() string {
-	return fmt.Sprintf("amqps://%s/", ns.getHostname())
+	return fmt.Sprintf("amqps://%s/", ns.GetHostname())
 }
 
 func (ns *Namespace) getHTTPSHostURI() string {
 	suffix := ns.resolveSuffix()
 	if strings.HasSuffix(suffix, "onebox.windows-int.net") {
-		return fmt.Sprintf("https://%s:4446/", ns.getHostname())
+		return fmt.Sprintf("https://%s:4446/", ns.GetHostname())
 	}
-	return fmt.Sprintf("https://%s/", ns.getHostname())
+	return fmt.Sprintf("https://%s/", ns.GetHostname())
 }
 
-func (ns *Namespace) getHostname() string {
+func (ns *Namespace) GetHostname() string {
 	return strings.Join([]string{ns.Name, ns.resolveSuffix()}, ".")
 }
 

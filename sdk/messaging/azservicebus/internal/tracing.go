@@ -6,20 +6,20 @@ package internal
 import (
 	"context"
 	"net/http"
-	"os"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/spans"
 	"github.com/devigned/tab"
 )
 
 func (ns *Namespace) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
 	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
+	spans.ApplyComponentInfo(span)
 	return ctx, span
 }
 
 func (em *entityManager) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
 	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
+	spans.ApplyComponentInfo(span)
 	span.AddAttributes(tab.StringAttribute("span.kind", "client"))
 	return ctx, span
 }
@@ -34,29 +34,5 @@ func applyRequestInfo(span tab.Spanner, req *http.Request) {
 func applyResponseInfo(span tab.Spanner, res *http.Response) {
 	if res != nil {
 		span.AddAttributes(tab.Int64Attribute("http.status_code", int64(res.StatusCode)))
-	}
-}
-
-func startConsumerSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
-	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
-	span.AddAttributes(tab.StringAttribute("span.kind", "consumer"))
-	return ctx, span
-}
-
-func applyComponentInfo(span tab.Spanner) {
-	span.AddAttributes(
-		tab.StringAttribute("component", "github.com/Azure/azure-sdk-for-go"),
-		tab.StringAttribute("version", Version),
-	)
-	applyNetworkInfo(span)
-}
-
-func applyNetworkInfo(span tab.Spanner) {
-	hostname, err := os.Hostname()
-	if err == nil {
-		span.AddAttributes(
-			tab.StringAttribute("peer.hostname", hostname),
-		)
 	}
 }

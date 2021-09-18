@@ -70,7 +70,7 @@ func (e ErrMalformedMessage) Error() string {
 
 // NewErrIncorrectType lets you skip using the `reflect` package. Just provide a variable of the desired type as
 // 'expected'.
-func newErrIncorrectType(key string, expected, actual interface{}) ErrIncorrectType {
+func NewErrIncorrectType(key string, expected, actual interface{}) ErrIncorrectType {
 	return ErrIncorrectType{
 		Key:          key,
 		ExpectedType: reflect.TypeOf(expected),

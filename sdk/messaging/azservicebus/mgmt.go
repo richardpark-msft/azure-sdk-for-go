@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -15,8 +14,24 @@ import (
 	"github.com/Azure/azure-amqp-common-go/v3/rpc"
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/spans"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
+)
+
+const (
+	amqpRetryDefaultTimes    int           = 3
+	amqpRetryDefaultDelay    time.Duration = time.Second
+	amqpRetryBusyServerDelay time.Duration = 10 * time.Second
+)
+
+// Error Conditions
+const (
+	// Service Bus Errors
+	errorServerBusy         amqp.ErrorCondition = "com.microsoft:server-busy"
+	errorTimeout            amqp.ErrorCondition = "com.microsoft:timeout"
+	errorOperationCancelled amqp.ErrorCondition = "com.microsoft:operation-cancelled"
+	errorContainerClose     amqp.ErrorCondition = "com.microsoft:container-close"
 )
 
 type (
@@ -197,14 +212,14 @@ func isAMQPTransientError(ctx context.Context, err error) bool {
 	return false
 }
 
-func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, sequenceNumbers ...int64) ([]*Message, error) {
-	ctx, span := startConsumerSpanFromContext(ctx, string(spanNameDefer))
+func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, sequenceNumbers ...int64) ([]*amqp.Message, error) {
+	ctx, span := spans.ForReceiver(ctx, string(spanNameDefer), mc.managementPath, mc.ns.GetHostname())
 	defer span.End()
 
 	const messagesField, messageField = "messages", "message"
 
 	backwardsMode := uint32(0)
-	if mode == PeekLockMode {
+	if mode == PeekLock {
 		backwardsMode = 1
 	}
 
@@ -221,7 +236,7 @@ func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seq
 
 	msg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
-			operationFieldName: "com.microsoft:receive-by-sequence-number",
+			internal.OperationFieldName: "com.microsoft:receive-by-sequence-number",
 		},
 		Value: values,
 	}
@@ -233,7 +248,7 @@ func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seq
 	}
 
 	if rsp.Code == 204 {
-		return nil, ErrNoMessages{}
+		return nil, internal.ErrNoMessages{}
 	}
 
 	// Deferred messages come back in a relatively convoluted manner:
@@ -243,34 +258,34 @@ func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seq
 	// 			of an array with raw encoded Service Bus messages
 	val, ok := rsp.Message.Value.(map[string]interface{})
 	if !ok {
-		return nil, newErrIncorrectType(messageField, map[string]interface{}{}, rsp.Message.Value)
+		return nil, internal.NewErrIncorrectType(messageField, map[string]interface{}{}, rsp.Message.Value)
 	}
 
 	rawMessages, ok := val[messagesField]
 	if !ok {
-		return nil, ErrMissingField(messagesField)
+		return nil, internal.ErrMissingField(messagesField)
 	}
 
 	messages, ok := rawMessages.([]interface{})
 	if !ok {
-		return nil, newErrIncorrectType(messagesField, []interface{}{}, rawMessages)
+		return nil, internal.NewErrIncorrectType(messagesField, []interface{}{}, rawMessages)
 	}
 
-	transformedMessages := make([]*Message, len(messages))
+	transformedMessages := make([]*amqp.Message, len(messages))
 	for i := range messages {
 		rawEntry, ok := messages[i].(map[string]interface{})
 		if !ok {
-			return nil, newErrIncorrectType(messageField, map[string]interface{}{}, messages[i])
+			return nil, internal.NewErrIncorrectType(messageField, map[string]interface{}{}, messages[i])
 		}
 
 		rawMessage, ok := rawEntry[messageField]
 		if !ok {
-			return nil, ErrMissingField(messageField)
+			return nil, internal.ErrMissingField(messageField)
 		}
 
 		marshaled, ok := rawMessage.([]byte)
 		if !ok {
-			return nil, new(ErrMalformedMessage)
+			return nil, new(internal.ErrMalformedMessage)
 		}
 
 		var rehydrated amqp.Message
@@ -279,34 +294,21 @@ func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seq
 			return nil, err
 		}
 
-		transformedMessages[i], err = MessageFromAMQPMessage(&rehydrated)
-		if err != nil {
-			return nil, err
-		}
-
-		transformedMessages[i].useSession = mc.isSessionFilterSet
-		transformedMessages[i].sessionID = mc.sessionID
+		transformedMessages[i] = &rehydrated
 	}
-
-	// This sort is done to ensure that folks wanting to peek messages in sequence order may do so.
-	sort.Slice(transformedMessages, func(i, j int) bool {
-		iSeq := *transformedMessages[i].SystemProperties.SequenceNumber
-		jSeq := *transformedMessages[j].SystemProperties.SequenceNumber
-		return iSeq < jSeq
-	})
 
 	return transformedMessages, nil
 }
 
 func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64, messageCount int32) ([]*amqp.Message, error) {
-	ctx, span := startConsumerSpanFromContext(ctx, "sb.rpcClient.GetNextPage")
+	ctx, span := spans.StartConsumerSpanFromContext(ctx, "sb.rpcClient.GetNextPage")
 	defer span.End()
 
 	const messagesField, messageField = "messages", "message"
 
 	msg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
-			operationFieldName: peekMessageOperationID,
+			internal.OperationFieldName: internal.PeekMessageOperationID,
 		},
 		Value: map[string]interface{}{
 			"from-sequence-number": fromSequenceNumber,
@@ -325,7 +327,7 @@ func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64,
 	}
 
 	if rsp.Code == 204 {
-		return nil, ErrNoMessages{}
+		return nil, internal.ErrNoMessages{}
 	}
 
 	// Peeked messages come back in a relatively convoluted manner:
@@ -335,21 +337,21 @@ func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64,
 	// 			of an array with raw encoded Service Bus messages
 	val, ok := rsp.Message.Value.(map[string]interface{})
 	if !ok {
-		err = newErrIncorrectType(messageField, map[string]interface{}{}, rsp.Message.Value)
+		err = internal.NewErrIncorrectType(messageField, map[string]interface{}{}, rsp.Message.Value)
 		tab.For(ctx).Error(err)
 		return nil, err
 	}
 
 	rawMessages, ok := val[messagesField]
 	if !ok {
-		err = ErrMissingField(messagesField)
+		err = internal.ErrMissingField(messagesField)
 		tab.For(ctx).Error(err)
 		return nil, err
 	}
 
 	messages, ok := rawMessages.([]interface{})
 	if !ok {
-		err = newErrIncorrectType(messagesField, []interface{}{}, rawMessages)
+		err = internal.NewErrIncorrectType(messagesField, []interface{}{}, rawMessages)
 		tab.For(ctx).Error(err)
 		return nil, err
 	}
@@ -358,21 +360,21 @@ func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64,
 	for i := range messages {
 		rawEntry, ok := messages[i].(map[string]interface{})
 		if !ok {
-			err = newErrIncorrectType(messageField, map[string]interface{}{}, messages[i])
+			err = internal.NewErrIncorrectType(messageField, map[string]interface{}{}, messages[i])
 			tab.For(ctx).Error(err)
 			return nil, err
 		}
 
 		rawMessage, ok := rawEntry[messageField]
 		if !ok {
-			err = ErrMissingField(messageField)
+			err = internal.ErrMissingField(messageField)
 			tab.For(ctx).Error(err)
 			return nil, err
 		}
 
 		marshaled, ok := rawMessage.([]byte)
 		if !ok {
-			err = new(ErrMalformedMessage)
+			err = new(internal.ErrMalformedMessage)
 			tab.For(ctx).Error(err)
 			return nil, err
 		}
@@ -406,8 +408,8 @@ func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64,
 	return transformedMessages, nil
 }
 
-func (mc *mgmtClient) RenewLocks(ctx context.Context, messages ...*Message) error {
-	ctx, span := startConsumerSpanFromContext(ctx, "sb.RenewLocks")
+func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, messages ...*ReceivedMessage) error {
+	ctx, span := spans.StartConsumerSpanFromContext(ctx, "sb.RenewLocks")
 	defer span.End()
 
 	var linkName string

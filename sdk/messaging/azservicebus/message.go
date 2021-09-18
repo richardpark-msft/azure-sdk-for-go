@@ -5,12 +5,10 @@ package azservicebus
 
 import (
 	"fmt"
-	"reflect"
 	"time"
 
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
 	"github.com/Azure/go-amqp"
-	"github.com/mitchellh/mapstructure"
 )
 
 type (
@@ -18,13 +16,16 @@ type (
 	ReceivedMessage struct {
 		Message
 
-		LockToken               *uuid.UUID
-		DeliveryCount           uint32
-		SequenceNumber          *int64     // :"x-opt-sequence-number"`
-		EnqueuedSequenceNumber  *int64     // :"x-opt-enqueue-sequence-number"`
-		EnqueuedTime            *time.Time // :"x-opt-enqueued-time"`
-		DeadLetterSource        *string    // :"x-opt-deadletter-source"`
-		TransactionPartitionKey *string    // :"x-opt-via-partition-key"`
+		LockToken              *uuid.UUID
+		DeliveryCount          uint32
+		LockedUntil            *time.Time `mapstructure:"x-opt-locked-until"`
+		SequenceNumber         *int64     // :"x-opt-sequence-number"`
+		EnqueuedSequenceNumber *int64     // :"x-opt-enqueue-sequence-number"`
+		EnqueuedTime           *time.Time // :"x-opt-enqueued-time"`
+		DeadLetterSource       *string    // :"x-opt-deadletter-source"`
+
+		// available in the raw AMQP message, but not exported by default
+		// GroupSequence  *uint32
 
 		// internal bookkeeping
 		rawAMQPMessage *amqp.Message
@@ -46,25 +47,16 @@ type (
 		To               string
 		TimeToLive       *time.Duration
 
-		// TODO: move from SystemProperties
-		PartitionKey            *string // `mapstructure:"x-opt-partition-key"`
+		PartitionKey            *string
 		TransactionPartitionKey *string
+		ScheduledEnqueueTime    *time.Time // `mapstructure:"x-opt-scheduled-enqueue-time"`
 
-		// available in the raw AMQP message, but not exported by default
-		// GroupSequence  *uint32
-
-		// I believe all of these were hoisted to the top level so we don't need
-		// a map for in the HLO.
-		//		SystemProperties      *SystemProperties
 		ApplicationProperties map[string]interface{} // was UserProperties
 		Format                uint32
-
-		ScheduledEnqueueTime *time.Time // `mapstructure:"x-opt-scheduled-enqueue-time"`
 	}
 
 	// SystemProperties are used to store properties that are set by the system.
 	SystemProperties struct {
-		LockedUntil *time.Time `mapstructure:"x-opt-locked-until"`
 
 		// PartitionID            *int16                 `mapstructure:"x-opt-partition-id"`
 
@@ -174,10 +166,10 @@ func addMapToAnnotations(a amqp.Annotations, m map[string]interface{}) amqp.Anno
 }
 
 func MessageFromAMQPMessage(msg *amqp.Message) (*ReceivedMessage, error) {
-	return newMessage(msg.GetData(), msg)
+	return newReceivedMessage(msg.GetData(), msg)
 }
 
-func newMessage(body []byte, amqpMsg *amqp.Message) (*ReceivedMessage, error) {
+func newReceivedMessage(body []byte, amqpMsg *amqp.Message) (*ReceivedMessage, error) {
 	msg := &ReceivedMessage{
 		Message: Message{
 			Body: body,
@@ -216,19 +208,57 @@ func newMessage(body []byte, amqpMsg *amqp.Message) (*ReceivedMessage, error) {
 	if amqpMsg.Annotations != nil {
 		// grab the standard annotations
 
-		a
-		sdfa
-		sdfsafsdaasdfsadfd
+		/*
+			LockedUntil            *time.Time             `mapstructure:"x-opt-locked-until"`
+			SequenceNumber         *int64                 `mapstructure:"x-opt-sequence-number"`
+			PartitionID            *int16                 `mapstructure:"x-opt-partition-id"`
+			PartitionKey           *string                `mapstructure:"x-opt-partition-key"`
+			EnqueuedTime           *time.Time             `mapstructure:"x-opt-enqueued-time"`
+			DeadLetterSource       *string                `mapstructure:"x-opt-deadletter-source"`
+			ScheduledEnqueueTime   *time.Time             `mapstructure:"x-opt-scheduled-enqueue-time"`
+			EnqueuedSequenceNumber *int64                 `mapstructure:"x-opt-enqueue-sequence-number"`
+			ViaPartitionKey        *string                `mapstructure:"x-opt-via-partition-key"`
+		*/
 
-		if err := mapstructure.Decode(amqpMsg.Annotations, &msg.SystemProperties); err != nil {
-			return msg, err
+		if lockedUntil, ok := amqpMsg.Annotations["x-opt-locked-until"]; ok {
+			msg.LockedUntil = lockedUntil.(*time.Time)
 		}
+
+		if sequenceNumber, ok := amqpMsg.Annotations["x-opt-sequence-number"]; ok {
+			msg.SequenceNumber = sequenceNumber.(*int64)
+		}
+
+		if partitionKey, ok := amqpMsg.Annotations["x-opt-partition-key"]; ok {
+			msg.PartitionKey = partitionKey.(*string)
+		}
+
+		if enqueuedTime, ok := amqpMsg.Annotations["x-opt-enqueued-time"]; ok {
+			msg.EnqueuedTime = enqueuedTime.(*time.Time)
+		}
+
+		if deadLetterSource, ok := amqpMsg.Annotations["x-opt-deadletter-source"]; ok {
+			msg.DeadLetterSource = deadLetterSource.(*string)
+		}
+
+		if scheduledEnqueueTime, ok := amqpMsg.Annotations["x-opt-scheduled-enqueue-time"]; ok {
+			msg.ScheduledEnqueueTime = scheduledEnqueueTime.(*time.Time)
+		}
+
+		if enqueuedSequenceNumber, ok := amqpMsg.Annotations["x-opt-enqueue-sequence-number"]; ok {
+			msg.EnqueuedSequenceNumber = enqueuedSequenceNumber.(*int64)
+		}
+
+		if viaPartitionKey, ok := amqpMsg.Annotations["x-opt-via-partition-key"]; ok {
+			msg.TransactionPartitionKey = viaPartitionKey.(*string)
+		}
+
+		// TODO: annotation propagation is a thing.
 
 		// If we didn't populate any system properties, set up the struct so we
 		// can put the annotations in it
-		if msg.SystemProperties == nil {
-			msg.SystemProperties = new(SystemProperties)
-		}
+		// if msg.SystemProperties == nil {
+		// 	msg.SystemProperties = new(SystemProperties)
+		// }
 
 		// Take all string-keyed annotations because the protocol reserves all
 		// numeric keys for itself and there are no numeric keys defined in the
@@ -239,12 +269,12 @@ func newMessage(body []byte, amqpMsg *amqp.Message) (*ReceivedMessage, error) {
 		// This approach is also consistent with the behavior of .NET:
 		//
 		//	https://docs.microsoft.com/en-us/dotnet/api/azure.messaging.eventhubs.eventdata.systemproperties?view=azure-dotnet#Azure_Messaging_EventHubs_EventData_SystemProperties
-		msg.SystemProperties.Annotations = make(map[string]interface{})
-		for key, val := range amqpMsg.Annotations {
-			if s, ok := key.(string); ok {
-				msg.SystemProperties.Annotations[s] = val
-			}
-		}
+		// msg.SystemProperties.Annotations = make(map[string]interface{})
+		// for key, val := range amqpMsg.Annotations {
+		// 	if s, ok := key.(string); ok {
+		// 		msg.SystemProperties.Annotations[s] = val
+		// 	}
+		// }
 	}
 
 	if amqpMsg.DeliveryTag != nil && len(amqpMsg.DeliveryTag) > 0 {
@@ -294,49 +324,49 @@ func uuidFromLockTokenBytes(bytes []byte) (*uuid.UUID, error) {
 	return &amqpUUID, nil
 }
 
-func encodeStructureToMap(structPointer interface{}) (map[string]interface{}, error) {
-	valueOfStruct := reflect.ValueOf(structPointer)
-	s := valueOfStruct.Elem()
-	if s.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("must provide a struct")
-	}
+// func encodeStructureToMap(structPointer interface{}) (map[string]interface{}, error) {
+// 	valueOfStruct := reflect.ValueOf(structPointer)
+// 	s := valueOfStruct.Elem()
+// 	if s.Kind() != reflect.Struct {
+// 		return nil, fmt.Errorf("must provide a struct")
+// 	}
 
-	encoded := make(map[string]interface{})
-	for i := 0; i < s.NumField(); i++ {
-		f := s.Field(i)
-		if f.IsValid() && f.CanSet() {
-			tf := s.Type().Field(i)
-			tag, err := parseMapStructureTag(tf.Tag)
-			if err != nil {
-				return nil, err
-			}
+// 	encoded := make(map[string]interface{})
+// 	for i := 0; i < s.NumField(); i++ {
+// 		f := s.Field(i)
+// 		if f.IsValid() && f.CanSet() {
+// 			tf := s.Type().Field(i)
+// 			tag, err := parseMapStructureTag(tf.Tag)
+// 			if err != nil {
+// 				return nil, err
+// 			}
 
-			// Skip any entries with an exclude tag
-			if tag.Name == "-" {
-				continue
-			}
+// 			// Skip any entries with an exclude tag
+// 			if tag.Name == "-" {
+// 				continue
+// 			}
 
-			if tag != nil {
-				switch f.Kind() {
-				case reflect.Ptr:
-					if !f.IsNil() || tag.PersistEmpty {
-						if f.IsNil() {
-							encoded[tag.Name] = nil
-						} else {
-							encoded[tag.Name] = f.Elem().Interface()
-						}
-					}
-				default:
-					if f.Interface() != reflect.Zero(f.Type()).Interface() || tag.PersistEmpty {
-						encoded[tag.Name] = f.Interface()
-					}
-				}
-			}
-		}
-	}
+// 			if tag != nil {
+// 				switch f.Kind() {
+// 				case reflect.Ptr:
+// 					if !f.IsNil() || tag.PersistEmpty {
+// 						if f.IsNil() {
+// 							encoded[tag.Name] = nil
+// 						} else {
+// 							encoded[tag.Name] = f.Elem().Interface()
+// 						}
+// 					}
+// 				default:
+// 					if f.Interface() != reflect.Zero(f.Type()).Interface() || tag.PersistEmpty {
+// 						encoded[tag.Name] = f.Interface()
+// 					}
+// 				}
+// 			}
+// 		}
+// 	}
 
-	return encoded, nil
-}
+// 	return encoded, nil
+// }
 
 // func parseMapStructureTag(tag reflect.StructTag) (*mapStructureTag, error) {
 // 	str, ok := tag.Lookup("mapstructure")

@@ -3,20 +3,18 @@
 
 package internal
 
-const vendorPrefix = "com.microsoft:"
-
 // Operations
 const (
-	lockRenewalOperationName   = vendorPrefix + "renew-lock"
-	peekMessageOperationID     = vendorPrefix + "peek-message"
-	scheduleMessageOperationID = vendorPrefix + "schedule-message"
-	cancelScheduledOperationID = vendorPrefix + "cancel-scheduled-message"
+	lockRenewalOperationName   = "com.microsoft:renew-lock"
+	peekMessageOperationID     = "com.microsoft:peek-message"
+	scheduleMessageOperationID = "com.microsoft:schedule-message"
+	cancelScheduledOperationID = "com.microsoft:cancel-scheduled-message"
 )
 
 // Field Descriptions
 const (
-	operationFieldName     = "operation"
-	lockTokensFieldName    = "lock-tokens"
-	serverTimeoutFieldName = vendorPrefix + "server-timeout"
-	associatedLinkName     = "associated-link-name"
+	OperationFieldName     = "operation"
+	LockTokensFieldName    = "lock-tokens"
+	ServerTimeoutFieldName = "com.microsoft:server-timeout"
+	AssociatedLinkName     = "associated-link-name"
 )

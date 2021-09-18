@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-amqp-common-go/v3/auth"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/spans"
 	"github.com/devigned/tab"
 )
 
@@ -99,7 +100,7 @@ var (
 
 	applyTracing MiddlewareFunc = func(next RestHandler) RestHandler {
 		return func(ctx context.Context, req *http.Request) (*http.Response, error) {
-			ctx, span := startConsumerSpanFromContext(ctx, "sb.Middleware.ApplyTracing")
+			ctx, span := spans.StartConsumerSpanFromContext(ctx, "sb.Middleware.ApplyTracing")
 			defer span.End()
 
 			applyRequestInfo(span, req)
