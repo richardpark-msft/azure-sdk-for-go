@@ -32,7 +32,10 @@ type ReceivedMessage struct {
 	LockToken      string
 	SequenceNumber int64
 
-	legacyMessage *internal.Message
+	// linkRevision is the revision of a link we were received with
+	// (if this doesn't match, on settlement, we'll fallback to using the $management link instead.)
+	linkRevision uint64
+	amqpMessage  *amqp.Message
 }
 
 func (m *Message) toAMQPMessage() (*amqp.Message, error) {
