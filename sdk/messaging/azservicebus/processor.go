@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	amqpCommon "github.com/Azure/azure-amqp-common-go/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
+	"github.com/Azure/go-amqp"
 )
 
 type processorConfig struct {
@@ -24,11 +24,6 @@ type processorConfig struct {
 	// happens based on the return value of user's processMessage handler.
 	ShouldAutoComplete bool
 	MaxConcurrentCalls int
-
-	RetryOptions struct {
-		Times int
-		Delay time.Duration
-	}
 }
 
 // Processor is a push-based receiver for Service Bus.
@@ -47,13 +42,14 @@ type Processor struct {
 	activeReceiversWg *sync.WaitGroup
 
 	// replaceable for unit tests
-	ns        legacyNamespace
 	subscribe func(
 		ctx context.Context,
-		receiver internal.LegacyReceiver,
+		links *links,
 		shouldAutoComplete bool,
 		handleMessage func(message *ReceivedMessage) error,
 		notifyError func(err error)) bool
+
+	links *links
 }
 
 // ProcessorOption represents an option on the Processor.
@@ -130,11 +126,7 @@ func ProcessorWithMaxConcurrentCalls(maxConcurrentCalls int) ProcessorOption {
 	}
 }
 
-type legacyNamespace interface {
-	NewReceiver(ctx context.Context, entityPath string, opts ...internal.ReceiverOption) (internal.LegacyReceiver, error)
-}
-
-func newProcessor(ns legacyNamespace, options ...ProcessorOption) (*Processor, error) {
+func newProcessor(ns *internal.Namespace, options ...ProcessorOption) (*Processor, error) {
 	processor := &Processor{
 		config: processorConfig{
 			ReceiveMode:        PeekLock,
@@ -152,9 +144,7 @@ func newProcessor(ns legacyNamespace, options ...ProcessorOption) (*Processor, e
 
 		mu:                &sync.Mutex{},
 		activeReceiversWg: &sync.WaitGroup{},
-
-		ns:        ns,
-		subscribe: subscribe,
+		subscribe:         subscribe,
 	}
 
 	for _, opt := range options {
@@ -170,11 +160,18 @@ func newProcessor(ns legacyNamespace, options ...ProcessorOption) (*Processor, e
 	}
 
 	processor.config.FullEntityPath = entityPath
+	processor.links = internal.NewLinks(ns, entityPath, processor.createReceiverLink)
 
 	processor.processorCtx, processor.cancelProcessor = context.WithCancel(context.Background())
 	processor.receiversCtx, processor.cancelReceivers = context.WithCancel(context.Background())
 
 	return processor, nil
+}
+
+// compatible with `CreateLinkFunc`
+func (p *Processor) createReceiverLink(ctx context.Context, session *amqp.Session) (*amqp.Sender, *amqp.Receiver, error) {
+	options := createLinkOptions(p.config.ReceiveMode, p.config.FullEntityPath)
+	return createReceiverLink(ctx, session, options)
 }
 
 // Start will start receiving messages from the queue or subscription.
@@ -199,41 +196,29 @@ func (p *Processor) Start(handleMessage func(message *ReceivedMessage) error, ha
 	defer p.mu.Unlock()
 
 	p.activeReceiversWg.Add(1)
+
 	go func(ctx context.Context) {
 		defer p.activeReceiversWg.Done()
 
 		for {
-			retry, _ := amqpCommon.Retry(p.config.RetryOptions.Times, p.config.RetryOptions.Delay, func() (interface{}, error) {
-				receiver, err := p.ns.NewReceiver(ctx, p.config.FullEntityPath,
-					internal.ReceiverWithReceiveMode(internal.ReceiveMode(p.config.ReceiveMode)))
+			backoff := internal.DefaultBackoffPolicy
 
-				if err != nil {
-					// notify the user and then fall into doing a retry
-					handleError(err)
-					return true, amqpCommon.Retryable("")
-				}
-
-				defer receiver.Close(ctx)
-
-				if err := receiver.IssueCredit(uint32(p.config.MaxConcurrentCalls)); err != nil {
-					// notify the user but there's no reason to restart because this failure must be
-					// an internal error.
-					handleError(err)
-					return false, nil
-				}
-
+			for i := 0; i < p.config.RetryOptions.Times; i++ {
 				// we retry infinitely, but do it in the pattern they specify via their retryOptions for each "round" of retries.
-				retry := p.subscribe(ctx, receiver, p.config.ShouldAutoComplete, handleMessage, handleError)
+				retry := p.subscribe(ctx, links, p.config.MaxConcurrentCalls, p.config.ShouldAutoComplete, handleMessage, handleError)
 
-				if retry {
-					return true, amqpCommon.Retryable("")
+				if !retry {
+					break
 				}
 
-				return false, nil
-			})
-
-			if !retry.(bool) {
-				break
+				select {
+				case <-time.After(backoff.Duration()):
+					if err := p.links.Recover(ctx); err != nil {
+						handleError(err)
+					}
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 		}
 	}(p.receiversCtx)
@@ -270,48 +255,70 @@ func (p *Processor) Close(ctx context.Context) error {
 
 func subscribe(
 	ctx context.Context,
-	receiver internal.LegacyReceiver,
+	links *links,
+	maxConcurrency int,
 	shouldAutoComplete bool,
 	handleMessage func(message *ReceivedMessage) error,
 	notifyError func(err error)) bool {
 
+	_, receiver, mgmt, linkRevision, err := links.Get(ctx)
+
+	if err != nil {
+		notifyError(err)
+		return true
+	}
+
+	if err := receiver.IssueCredit(uint32(p.config.MaxConcurrentCalls)); err != nil {
+		// something is very broken - definitely want to try to recreate the link.
+		notifyError(err)
+		return true
+	}
+
 	activeCallbacksWg := &sync.WaitGroup{}
 	notifyErrorAsync := wrapNotifyError(notifyError, activeCallbacksWg)
+	maxCh := make(chan bool, maxConcurrency)
 
-	const shouldRetry = true
+	for {
+		message, err := receiver.Receive(ctx)
 
-	listenHandle := receiver.Listen(ctx, internal.HandlerFunc(func(ctx context.Context, legacyMessage *internal.Message) error {
-		// this shouldn't happen since we do a `select` above that prevents it.
-		// errors from their handler are sent to their error handler but do not terminate the
-		// subscription.
-		activeCallbacksWg.Add(1)
-		defer activeCallbacksWg.Done()
+		maxCh <- true
 
-		handleSingleMessage(handleMessage, notifyErrorAsync, shouldAutoComplete, receiver, legacyMessage)
+		go func() {
+			defer func() { <-maxCh }()
 
-		// user callback completes and they get a new credit
-		if err := receiver.IssueCredit(1); err != nil {
-			notifyErrorAsync(err)
-		}
+			// this shouldn't happen since we do a `select` above that prevents it.
+			// errors from their handler are sent to their error handler but do not terminate the
+			// subscription.
+			activeCallbacksWg.Add(1)
+			defer activeCallbacksWg.Done()
 
-		return nil
-	}))
+			handleSingleMessage(handleMessage, notifyErrorAsync, shouldAutoComplete, receiver, message)
+
+			// user callback completes and they get a new credit
+			if err := receiver.IssueCredit(1); err != nil {
+				notifyErrorAsync(err)
+			}
+
+			return nil
+		}()
+	}
 
 	select {
 	case <-ctx.Done():
 		notifyErrorAsync(ctx.Err())
 		activeCallbacksWg.Wait()
-		return !shouldRetry
-	case <-listenHandle.Done(): // TODO: eliminate this redundancy soon, and hopefully we only need to rely on ctx.Done() above.
-		notifyErrorAsync(listenHandle.Err())
+
+		// user's quitting, don't restart
+		return false
+	default:
 		activeCallbacksWg.Wait()
 
 		// we should retry since the listen handle can be closed if we did a .Recover() on the receiver.
-		return shouldRetry
+		return true
 	}
 }
 
-func handleSingleMessage(handleMessage func(message *ReceivedMessage) error, notifyErrorAsync func(err error), shouldAutoComplete bool, receiver internal.LegacyReceiver, legacyMessage *internal.Message) {
+func handleSingleMessage(handleMessage func(message *ReceivedMessage) error, notifyErrorAsync func(err error), shouldAutoComplete bool, settler settler, message *amqp.Message) {
 	err := handleMessage(convertToReceivedMessage(legacyMessage))
 
 	if err != nil {

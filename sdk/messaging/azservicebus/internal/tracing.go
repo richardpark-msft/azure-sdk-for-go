@@ -17,20 +17,6 @@ func (ns *Namespace) startSpanFromContext(ctx context.Context, operationName str
 	return ctx, span
 }
 
-func (m *Message) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
-	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
-	attrs := []tab.Attribute{tab.StringAttribute("amqp.message.id", m.ID)}
-	if m.SessionID != nil {
-		attrs = append(attrs, tab.StringAttribute("amqp.session.id", *m.SessionID))
-	}
-	if m.GroupSequence != nil {
-		attrs = append(attrs, tab.Int64Attribute("amqp.sequence_number", int64(*m.GroupSequence)))
-	}
-	span.AddAttributes(attrs...)
-	return ctx, span
-}
-
 func (em *entityManager) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
 	ctx, span := tab.StartSpan(ctx, operationName)
 	applyComponentInfo(span)
@@ -49,45 +35,6 @@ func applyResponseInfo(span tab.Spanner, res *http.Response) {
 	if res != nil {
 		span.AddAttributes(tab.Int64Attribute("http.status_code", int64(res.StatusCode)))
 	}
-}
-
-func (e *entity) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
-	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
-	span.AddAttributes(tab.StringAttribute("message_bus.destination", e.ManagementPath()))
-	return ctx, span
-}
-
-func (s *Sender) startProducerSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
-	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
-	span.AddAttributes(
-		tab.StringAttribute("span.kind", "producer"),
-		tab.StringAttribute("message_bus.destination", s.getFullIdentifier()),
-	)
-	return ctx, span
-}
-
-func (r *Receiver) startConsumerSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
-	ctx, span := startConsumerSpanFromContext(ctx, operationName)
-	span.AddAttributes(tab.StringAttribute("message_bus.destination", r.entityPath))
-	return ctx, span
-}
-
-func (r *rpcClient) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
-	ctx, span := startConsumerSpanFromContext(ctx, operationName)
-	span.AddAttributes(tab.StringAttribute("message_bus.destination", r.ec.ManagementPath()))
-	return ctx, span
-}
-
-func (r *rpcClient) startProducerSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
-	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
-	span.AddAttributes(
-		tab.StringAttribute("span.kind", "producer"),
-		tab.StringAttribute("message_bus.destination", r.ec.ManagementPath()),
-	)
-	return ctx, span
 }
 
 func startConsumerSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {

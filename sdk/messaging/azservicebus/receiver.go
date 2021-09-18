@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/go-amqp"
+	"github.com/devigned/tab"
 )
 
 // ReceiveMode represents the lock style to use for a reciever - either
@@ -51,11 +53,19 @@ type Receiver struct {
 		}
 	}
 
-	mu       sync.Mutex
-	ns       legacyNamespace
-	receiver internal.LegacyReceiver
+	mu      sync.Mutex
+	links   *links
+	settler *settler
+}
 
-	linkState *linkState
+const defaultLinkRxBuffer = 2048
+
+type amqpReceiver interface {
+	Receive(ctx context.Context) (*amqp.Message, error)
+	DrainCredit(ctx context.Context) error
+	IssueCredit(credit uint32) error
+
+	Close(ctx context.Context) error
 }
 
 // ReceiverOption represents an option for a receiver.
@@ -111,7 +121,7 @@ func ReceiverWithSubscription(topic string, subscription string) ReceiverOption 
 	}
 }
 
-func newReceiver(ns legacyNamespace, options ...ReceiverOption) (*Receiver, error) {
+func newReceiver(ns *internal.Namespace, options ...ReceiverOption) (*Receiver, error) {
 	receiver := &Receiver{
 		config: struct {
 			ReceiveMode    ReceiveMode
@@ -124,7 +134,6 @@ func newReceiver(ns legacyNamespace, options ...ReceiverOption) (*Receiver, erro
 		}{
 			ReceiveMode: PeekLock,
 		},
-		ns:        ns,
 		linkState: newLinkState(context.Background(), errClosed{link: "receiver"}),
 	}
 
@@ -141,6 +150,10 @@ func newReceiver(ns legacyNamespace, options ...ReceiverOption) (*Receiver, erro
 	}
 
 	receiver.config.FullEntityPath = entityPath
+
+	receiver.links = internal.NewLinks(ns, entityPath, receiver.linkCreator)
+	receiver.settler = &settler{links}
+
 	return receiver, nil
 }
 
@@ -180,7 +193,7 @@ func ReceiveWithMaxTimeAfterFirstMessage(max time.Duration) ReceiveOption {
 // 1. An explicit timeout set with `ReceiveWithMaxWaitTime` (default: 60 seconds)
 // 2. An implicit timeout (default: 1 second) that starts after the first
 //    message has been received. This time can be adjusted with `ReceiveWithMaxTimeAfterFirstMessage`
-func (r *Receiver) ReceiveMessages(ctx context.Context, numMessages int, options ...ReceiveOption) ([]*ReceivedMessage, error) {
+func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options ...ReceiveOption) ([]*ReceivedMessage, error) {
 	if r.linkState.Closed() {
 		return nil, r.linkState.Err()
 	}
@@ -196,55 +209,76 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, numMessages int, options
 		}
 	}
 
-	receiver, err := r.updateReceiver(ctx)
+	_, receiver, _, err := r.links.Get(ctx)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if err := receiver.IssueCredit(uint32(numMessages)); err != nil {
+	if err := receiver.IssueCredit(uint32(maxMessages)); err != nil {
 		return nil, err
 	}
 
 	var messages []*ReceivedMessage
-	var allMessagesReceivedError = errors.New("all messages received")
 
-	receiveCh, afterFirstMessageFn := startReceiverTimer(ropts.maxWaitTime, ropts.maxWaitTimeAfterFirstMessage)
+	// There are two timers - an initial one that starts counting down
+	// before receiving starts and a second, shorter timer, that's starts
+	// after the first message is received
+	//
+	// The first timer is there just to make sure that if we _never_ receive
+	// messages that we don't just wait forever. That one starts here.
+	//
+	// The second timer starts after we receive one message. That timer is there
+	// to make sure we don't hold onto the messages for too long, and risk them
+	// expiring.
+	receiveCtx, startFirstMessageCountdown := contextWithTwoTimeouts(ctx, ropts.maxWaitTime, ropts.maxWaitTimeAfterFirstMessage)
+	receivingComplete := make(chan error, 1)
 
-	listenCtx, cancelListenCtx := context.WithCancel(ctx)
-	defer cancelListenCtx()
+	go func() {
+		for {
+			message, err := receiver.Receive(receiveCtx)
 
-	listenHandle := r.receiver.Listen(listenCtx, internal.HandlerFunc(func(c context.Context, legacyMessage *internal.Message) error {
-		// NOTE: the invocation of this function from the AMQP library is single-threaded so
-		// no concurrency sync is required.
-		messages = append(messages, convertToReceivedMessage(legacyMessage))
+			if err != nil {
+				receivingComplete <- err
+				break
+			}
 
-		if len(messages) == numMessages {
-			return allMessagesReceivedError
+			// TODO: temporary while we don't yet have the "final" messaging
+			// structure from https://github.com/Azure/azure-sdk-for-go/issues/15094
+			msg, err := internal.MessageFromAMQPMessage(message)
+
+			if err != nil {
+				// TODO: there is only one reason this happens (mapstructure fails).
+				// We're only using to peel out a handful of attributes so I'd rather just
+				// get rid of it (and not have the error condition at all)
+				receivingComplete <- err
+				break
+			}
+
+			receivedMessage := convertToReceivedMessage(msg)
+
+			messages = append(messages, receivedMessage)
+
+			if len(messages) == maxMessages {
+				close(receivingComplete)
+				break
+			}
+
+			if len(messages) == 1 {
+				startFirstMessageCountdown()
+			}
 		}
-
-		if len(messages) == 1 {
-			afterFirstMessageFn()
-		}
-
-		return nil
-	}))
+	}()
 
 	select {
-	case <-listenHandle.Done():
-		if listenHandle.Err() != allMessagesReceivedError {
-			err = listenHandle.Err()
-		}
-	case <-receiveCh:
-		break
-	case <-r.linkState.Done():
-		err = r.linkState.Err()
+	case err := <-receivingComplete:
+		return messages, err
 	case <-ctx.Done():
 		err = ctx.Err()
 	}
 
 	// make sure we leave the link in a consistent state.
-	if err := r.receiver.DrainCredit(ctx); err != nil {
+	if err := receiver.DrainCredit(ctx); err != nil {
 		return nil, err
 	}
 
@@ -253,63 +287,32 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, numMessages int, options
 
 // CompleteMessage completes a message, deleting it from the queue or subscription.
 func (r *Receiver) CompleteMessage(ctx context.Context, message *ReceivedMessage) error {
-	return message.legacyMessage.Complete(ctx)
+	return r.settler.Complete(ctx, message)
 }
 
 // DeadLetterMessage settles a message by moving it to the dead letter queue for a
 // queue or subscription.
 func (r *Receiver) DeadLetterMessage(ctx context.Context, message *ReceivedMessage) error {
-	// TODO: expand to let them set the reason and description.
-	return message.legacyMessage.DeadLetter(ctx, nil)
+	// TODO: dead letter reasons.
+	return r.settler.DeadLetter(ctx, message)
 }
 
 // AbandonMessage will cause a message to be returned to the queue or subscription.
 // This will increment its delivery count, and potentially cause it to be dead lettered
 // depending on your queue or subscription's configuration.
 func (r *Receiver) AbandonMessage(ctx context.Context, message *ReceivedMessage) error {
-	return message.legacyMessage.Abandon(ctx)
+	return r.settler.Abandon(ctx, message)
 }
 
 // DeferMessage will cause a message to be deferred.
 // Messages that are deferred by can be retrieved using `Receiver.ReceiveDeferredMessages()`.
 func (r *Receiver) DeferMessage(ctx context.Context, message *ReceivedMessage) error {
-	return message.legacyMessage.Defer(ctx)
+	return r.settler.Defer(ctx, message)
 }
 
 // Close permanently closes the receiver.
 func (r *Receiver) Close(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	defer r.linkState.Close()
-
-	var err error
-
-	if r.receiver != nil {
-		err = r.receiver.Close(ctx)
-		r.receiver = nil
-	}
-
-	return err
-}
-
-func (r *Receiver) updateReceiver(ctx context.Context) (internal.LegacyReceiver, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.receiver != nil {
-		return r.receiver, nil
-	}
-
-	receiver, err := r.ns.NewReceiver(ctx,
-		r.config.FullEntityPath,
-		internal.ReceiverWithReceiveMode(internal.ReceiveMode(r.config.ReceiveMode)))
-
-	if err != nil {
-		return nil, err
-	}
-
-	r.receiver = receiver
-	return r.receiver, nil
+	return r.links.Close(ctx)
 }
 
 type entity struct {
@@ -339,26 +342,52 @@ func (e *entity) String() (string, error) {
 	return entityPath, nil
 }
 
-func startReceiverTimer(initial time.Duration, timeAfterFirstMessage time.Duration) (<-chan struct{}, func()) {
-	ch := make(chan struct{}, 1)
-
-	go func() {
-		<-time.After(initial)
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}()
+func contextWithTwoTimeouts(ctx context.Context, initial time.Duration, timeAfterFirstMessage time.Duration) (context.Context, func()) {
+	ctx, cancel := context.WithTimeout(ctx, initial)
 
 	afterFirstMessage := func() {
 		go func() {
-			<-time.After(timeAfterFirstMessage)
 			select {
-			case ch <- struct{}{}:
-			default:
+			case <-time.After(timeAfterFirstMessage):
+			case <-ctx.Done():
+				cancel()
 			}
 		}()
 	}
 
-	return ch, afterFirstMessage
+	return ctx, afterFirstMessage
+}
+
+func createReceiverLink(ctx context.Context, session *amqp.Session, linkOptions []amqp.LinkOption) (*amqp.Sender, *amqp.Receiver, error) {
+	opts := r.createLinkOptions()
+
+	amqpReceiver, err := session.NewReceiver(opts...)
+
+	if err != nil {
+		tab.For(ctx).Error(err)
+		return nil, nil, err
+	}
+
+	return nil, amqpReceiver, nil
+}
+
+func createLinkOptions(mode ReceiveMode, entityPath string) []amqp.LinkOption {
+	receiveMode := amqp.ModeSecond
+
+	if mode == ReceiveAndDelete {
+		receiveMode = amqp.ModeFirst
+	}
+
+	opts := []amqp.LinkOption{
+		amqp.LinkSourceAddress(r.config.FullEntityPath),
+		amqp.LinkReceiverSettle(receiveMode),
+		amqp.LinkWithManualCredits(),
+		amqp.LinkCredit(defaultLinkRxBuffer),
+	}
+
+	if mode == ReceiveAndDelete {
+		opts = append(opts, amqp.LinkSenderSettle(amqp.ModeSettled))
+	}
+
+	return opts
 }

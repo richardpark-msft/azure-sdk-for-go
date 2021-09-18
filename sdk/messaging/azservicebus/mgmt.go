@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-package internal
+package azservicebus
 
 import (
 	"context"
@@ -14,123 +14,149 @@ import (
 	common "github.com/Azure/azure-amqp-common-go/v3"
 	"github.com/Azure/azure-amqp-common-go/v3/rpc"
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
 )
 
 type (
-	rpcClient struct {
-		ec                 entityConnector
-		client             *amqp.Client
-		clientMu           sync.RWMutex
+	mgmtClient struct {
+		ns             *internal.Namespace
+		managementPath string
+
+		clientMu sync.RWMutex
+		link     *rpc.Link
+
 		sessionID          *string
 		isSessionFilterSet bool
-		cancelAuthRefresh  func() <-chan struct{}
-	}
-
-	rpcClientOption func(*rpcClient) error
-
-	// EntityManagementAddresser describes the ability of an entity to provide an addressable path to it's management
-	// endpoint
-	EntityManagementAddresser interface {
-		ManagementPath() string
 	}
 )
 
-func newRPCClient(ctx context.Context, ec entityConnector, opts ...rpcClientOption) (*rpcClient, error) {
-	r := &rpcClient{
-		ec: ec,
+// tracing operation names
+type rpcSpanName string
+
+const (
+	spanNameRenewLock              rpcSpanName = "sb.mgmt.RenewLock"
+	spanNameDefer                  rpcSpanName = "sb.mgmt.Defer"
+	spanNameSettle                 rpcSpanName = "sb.mgmt.SendDisposition"
+	spanNameScheduleMessage        rpcSpanName = "sb.mgmt.Schedule"
+	spanNameCancelScheduledMessage rpcSpanName = "sb.mgmt.CancelScheduled"
+	spanNameRecover                rpcSpanName = "sb.mgmt.Recover"
+	spanNameTryRecover             rpcSpanName = "sb.mgmt.TryRecover"
+)
+
+func newRPCClient(ctx context.Context, entityPath string, ns *internal.Namespace) (*mgmtClient, error) {
+	r := &mgmtClient{
+		ns:             ns,
+		managementPath: fmt.Sprintf("%s/$management", entityPath),
 	}
 
-	for _, opt := range opts {
-		if err := opt(r); err != nil {
-			tab.For(ctx).Error(err)
-			return nil, err
-		}
-	}
-	if err := r.newClient(ctx); err != nil {
-		tab.For(ctx).Error(err)
-		return nil, err
-	}
 	return r, nil
 }
 
-// newClient will replace the existing client and start auth auto-refresh.
-// any pre-existing client MUST be closed before calling this method.
-// NOTE: this does *not* take the write lock, callers must hold it as required!
-func (r *rpcClient) newClient(ctx context.Context) error {
-	var err error
-	r.client, err = r.ec.Namespace().newClient(ctx)
-	if err != nil {
+// Recover will attempt to close the current session and link, then rebuild them
+func (mc *mgmtClient) recover(ctx context.Context) error {
+	mc.clientMu.Lock()
+	defer mc.clientMu.Unlock()
+
+	ctx, span := mc.startSpanFromContext(ctx, string(spanNameRecover))
+	defer span.End()
+
+	if mc.link != nil {
+		if err := mc.link.Close(ctx); err != nil {
+			tab.For(ctx).Debug(fmt.Sprintf("Error while closing old link in recovery: %s", err.Error()))
+		}
+		mc.link = nil
+	}
+
+	if _, err := mc.getLinkWithoutLock(ctx); err != nil {
 		return err
 	}
-	r.cancelAuthRefresh, err = r.ec.Namespace().negotiateClaim(ctx, r.client, r.ec.ManagementPath())
-	if err != nil {
-		return err
-	}
+
 	return nil
 }
 
-// Recover will attempt to close the current session and link, then rebuild them
-func (r *rpcClient) Recover(ctx context.Context) error {
-	ctx, span := r.startSpanFromContext(ctx, "sb.rpcClient.Recover")
-	defer span.End()
-	// atomically close and rebuild the client
-	r.clientMu.Lock()
-	defer r.clientMu.Unlock()
-	_ = r.close()
-	if err := r.newClient(ctx); err != nil {
-		tab.For(ctx).Error(err)
+// getLinkWithoutLock returns the currently cached link (or creates a new one)
+func (mc *mgmtClient) getLinkWithoutLock(ctx context.Context) (*rpc.Link, error) {
+	if mc.link != nil {
+		return mc.link, nil
+	}
+
+	client, err := mc.ns.GetAMQPClient(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	mc.link, err = rpc.NewLink(client, mc.managementPath)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return mc.link, nil
+}
+
+// closeWithoutLock closes the currently held link and nil's it.
+func (mc *mgmtClient) closeWithoutLock(ctx context.Context) error {
+	if mc.link == nil {
+		return nil
+	}
+
+	var l *rpc.Link
+	l, mc.link = mc.link, nil
+
+	if err := l.Close(ctx); err != nil {
+		tab.For(ctx).Debug(fmt.Sprintf("Error while closing old link in recovery: %s", err.Error()))
 		return err
 	}
+
 	return nil
 }
 
 // Close will close the AMQP connection
-func (r *rpcClient) Close() error {
-	r.clientMu.Lock()
-	defer r.clientMu.Unlock()
-	return r.close()
-}
-
-// closes the AMQP connection.  callers *must* hold the client write lock before calling!
-func (r *rpcClient) close() error {
-	if r.cancelAuthRefresh != nil {
-		<-r.cancelAuthRefresh()
-	}
-	return r.client.Close()
+func (mc *mgmtClient) Close(ctx context.Context) error {
+	mc.clientMu.Lock()
+	defer mc.clientMu.Unlock()
+	err := mc.link.Close(ctx)
+	mc.link = nil
+	return err
 }
 
 // creates a new link and sends the RPC request, recovering and retrying on certain AMQP errors
-func (r *rpcClient) doRPCWithRetry(ctx context.Context, address string, msg *amqp.Message, times int, delay time.Duration, opts ...rpc.LinkOption) (*rpc.Response, error) {
+func (mc *mgmtClient) doRPCWithRetry(ctx context.Context, msg *amqp.Message, times int, delay time.Duration, opts ...rpc.LinkOption) (*rpc.Response, error) {
 	// track the number of times we attempt to perform the RPC call.
 	// this is to avoid a potential infinite loop if the returned error
 	// is always transient and Recover() doesn't fail.
 	sendCount := 0
+
 	for {
-		r.clientMu.RLock()
-		client := r.client
-		r.clientMu.RUnlock()
-		var link *rpc.Link
+		mc.clientMu.RLock()
+		rpcLink, err := mc.getLinkWithoutLock(ctx)
+		mc.clientMu.RUnlock()
+
 		var rsp *rpc.Response
-		var err error
-		link, err = rpc.NewLink(client, address, opts...)
+
 		if err == nil {
-			rsp, err = link.RetryableRPC(ctx, times, delay, msg)
+			rsp, err = rpcLink.RetryableRPC(ctx, times, delay, msg)
+
 			if err == nil {
 				return rsp, err
 			}
 		}
+
 		if sendCount >= amqpRetryDefaultTimes || !isAMQPTransientError(ctx, err) {
 			return nil, err
 		}
 		sendCount++
 		// if we get here, recover and try again
 		tab.For(ctx).Debug("recovering RPC connection")
+
 		_, retryErr := common.Retry(amqpRetryDefaultTimes, amqpRetryDefaultDelay, func() (interface{}, error) {
-			ctx, sp := r.startProducerSpanFromContext(ctx, "sb.rpcClient.doRPCWithRetry.tryRecover")
+			ctx, sp := mc.startProducerSpanFromContext(ctx, string(spanNameTryRecover))
 			defer sp.End()
-			if err := r.Recover(ctx); err == nil {
+
+			if err := mc.recover(ctx); err == nil {
 				tab.For(ctx).Debug("recovered RPC connection")
 				return nil, nil
 			}
@@ -141,6 +167,7 @@ func (r *rpcClient) doRPCWithRetry(ctx context.Context, address string, msg *amq
 				return nil, common.Retryable(err.Error())
 			}
 		})
+
 		if retryErr != nil {
 			tab.For(ctx).Debug("RPC recovering retried, but error was unrecoverable")
 			return nil, retryErr
@@ -170,8 +197,8 @@ func isAMQPTransientError(ctx context.Context, err error) bool {
 	return false
 }
 
-func (r *rpcClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, sequenceNumbers ...int64) ([]*Message, error) {
-	ctx, span := startConsumerSpanFromContext(ctx, "sb.rpcClient.ReceiveDeferred")
+func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, sequenceNumbers ...int64) ([]*Message, error) {
+	ctx, span := startConsumerSpanFromContext(ctx, string(spanNameDefer))
 	defer span.End()
 
 	const messagesField, messageField = "messages", "message"
@@ -187,9 +214,9 @@ func (r *rpcClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seque
 	}
 
 	var opts []rpc.LinkOption
-	if r.isSessionFilterSet {
-		opts = append(opts, rpc.LinkWithSessionFilter(r.sessionID))
-		values["session-id"] = r.sessionID
+	if mc.isSessionFilterSet {
+		opts = append(opts, rpc.LinkWithSessionFilter(mc.sessionID))
+		values["session-id"] = mc.sessionID
 	}
 
 	msg := &amqp.Message{
@@ -199,7 +226,7 @@ func (r *rpcClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seque
 		Value: values,
 	}
 
-	rsp, err := r.doRPCWithRetry(ctx, r.ec.ManagementPath(), msg, 5, 5*time.Second, opts...)
+	rsp, err := mc.doRPCWithRetry(ctx, msg, 5, 5*time.Second, opts...)
 	if err != nil {
 		tab.For(ctx).Error(err)
 		return nil, err
@@ -252,14 +279,13 @@ func (r *rpcClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seque
 			return nil, err
 		}
 
-		transformedMessages[i], err = messageFromAMQPMessage(&rehydrated)
+		transformedMessages[i], err = MessageFromAMQPMessage(&rehydrated)
 		if err != nil {
 			return nil, err
 		}
 
-		transformedMessages[i].ec = r.ec
-		transformedMessages[i].useSession = r.isSessionFilterSet
-		transformedMessages[i].sessionID = r.sessionID
+		transformedMessages[i].useSession = mc.isSessionFilterSet
+		transformedMessages[i].sessionID = mc.sessionID
 	}
 
 	// This sort is done to ensure that folks wanting to peek messages in sequence order may do so.
@@ -272,7 +298,7 @@ func (r *rpcClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seque
 	return transformedMessages, nil
 }
 
-func (r *rpcClient) GetNextPage(ctx context.Context, fromSequenceNumber int64, messageCount int32) ([]*Message, error) {
+func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64, messageCount int32) ([]*amqp.Message, error) {
 	ctx, span := startConsumerSpanFromContext(ctx, "sb.rpcClient.GetNextPage")
 	defer span.End()
 
@@ -292,7 +318,7 @@ func (r *rpcClient) GetNextPage(ctx context.Context, fromSequenceNumber int64, m
 		msg.ApplicationProperties["server-timeout"] = uint(time.Until(deadline) / time.Millisecond)
 	}
 
-	rsp, err := r.doRPCWithRetry(ctx, r.ec.ManagementPath(), msg, 5, 5*time.Second)
+	rsp, err := mc.doRPCWithRetry(ctx, msg, 5, 5*time.Second)
 	if err != nil {
 		tab.For(ctx).Error(err)
 		return nil, err
@@ -328,7 +354,7 @@ func (r *rpcClient) GetNextPage(ctx context.Context, fromSequenceNumber int64, m
 		return nil, err
 	}
 
-	transformedMessages := make([]*Message, len(messages))
+	transformedMessages := make([]*amqp.Message, len(messages))
 	for i := range messages {
 		rawEntry, ok := messages[i].(map[string]interface{})
 		if !ok {
@@ -358,28 +384,29 @@ func (r *rpcClient) GetNextPage(ctx context.Context, fromSequenceNumber int64, m
 			return nil, err
 		}
 
-		transformedMessages[i], err = messageFromAMQPMessage(&rehydrated)
-		if err != nil {
-			tab.For(ctx).Error(err)
-			return nil, err
-		}
+		transformedMessages[i] = &rehydrated
 
-		transformedMessages[i].ec = r.ec
-		transformedMessages[i].useSession = r.isSessionFilterSet
-		transformedMessages[i].sessionID = r.sessionID
+		// transformedMessages[i], err = MessageFromAMQPMessage(&rehydrated)
+		// if err != nil {
+		// 	tab.For(ctx).Error(err)
+		// 	return nil, err
+		// }
+
+		// transformedMessages[i].useSession = r.isSessionFilterSet
+		// transformedMessages[i].sessionID = r.sessionID
 	}
 
 	// This sort is done to ensure that folks wanting to peek messages in sequence order may do so.
-	sort.Slice(transformedMessages, func(i, j int) bool {
-		iSeq := *transformedMessages[i].SystemProperties.SequenceNumber
-		jSeq := *transformedMessages[j].SystemProperties.SequenceNumber
-		return iSeq < jSeq
-	})
+	// sort.Slice(transformedMessages, func(i, j int) bool {
+	// 	iSeq := *transformedMessages[i].SystemProperties.SequenceNumber
+	// 	jSeq := *transformedMessages[j].SystemProperties.SequenceNumber
+	// 	return iSeq < jSeq
+	// })
 
 	return transformedMessages, nil
 }
 
-func (r *rpcClient) RenewLocks(ctx context.Context, messages ...*Message) error {
+func (mc *mgmtClient) RenewLocks(ctx context.Context, messages ...*Message) error {
 	ctx, span := startConsumerSpanFromContext(ctx, "sb.RenewLocks")
 	defer span.End()
 
@@ -415,7 +442,7 @@ func (r *rpcClient) RenewLocks(ctx context.Context, messages ...*Message) error 
 		renewRequestMsg.ApplicationProperties[associatedLinkName] = linkName
 	}
 
-	response, err := r.doRPCWithRetry(ctx, r.ec.ManagementPath(), renewRequestMsg, 3, 1*time.Second)
+	response, err := mc.doRPCWithRetry(ctx, renewRequestMsg, 3, 1*time.Second)
 	if err != nil {
 		tab.For(ctx).Error(err)
 		return err
@@ -430,11 +457,11 @@ func (r *rpcClient) RenewLocks(ctx context.Context, messages ...*Message) error 
 	return nil
 }
 
-func (r *rpcClient) SendDisposition(ctx context.Context, m *Message, state disposition) error {
+func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID, state disposition) error {
 	ctx, span := startConsumerSpanFromContext(ctx, "sb.rpcClient.SendDisposition")
 	defer span.End()
 
-	if m.LockToken == nil {
+	if lockToken == nil {
 		err := errors.New("lock token on the message is not set, thus cannot send disposition")
 		tab.For(ctx).Error(err)
 		return err
@@ -443,7 +470,7 @@ func (r *rpcClient) SendDisposition(ctx context.Context, m *Message, state dispo
 	var opts []rpc.LinkOption
 	value := map[string]interface{}{
 		"disposition-status": string(state.Status),
-		"lock-tokens":        []amqp.UUID{amqp.UUID(*m.LockToken)},
+		"lock-tokens":        []amqp.UUID{*lockToken},
 	}
 
 	if state.DeadLetterReason != nil {
@@ -454,10 +481,10 @@ func (r *rpcClient) SendDisposition(ctx context.Context, m *Message, state dispo
 		value["deadletter-description"] = state.DeadLetterDescription
 	}
 
-	if m.useSession {
-		value["session-id"] = m.sessionID
-		opts = append(opts, rpc.LinkWithSessionFilter(m.sessionID))
-	}
+	// if blah.useSession {
+	// 	value["session-id"] = blah.sessionID
+	// 	opts = append(opts, rpc.LinkWithSessionFilter(blah.sessionID))
+	// }
 
 	msg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
@@ -467,7 +494,7 @@ func (r *rpcClient) SendDisposition(ctx context.Context, m *Message, state dispo
 	}
 
 	// no error, then it was successful
-	_, err := r.doRPCWithRetry(ctx, m.ec.ManagementPath(), msg, 5, 5*time.Second, opts...)
+	_, err := mc.doRPCWithRetry(ctx, msg, 5, 5*time.Second, opts...)
 	if err != nil {
 		tab.For(ctx).Error(err)
 		return err
@@ -478,8 +505,8 @@ func (r *rpcClient) SendDisposition(ctx context.Context, m *Message, state dispo
 
 // ScheduleAt will send a batch of messages to a Queue, schedule them to be enqueued, and return the sequence numbers
 // that can be used to cancel each message.
-func (r *rpcClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, messages ...*Message) ([]int64, error) {
-	ctx, span := startConsumerSpanFromContext(ctx, "sb.rpcClient.ScheduleAt")
+func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, messages ...*Message) ([]int64, error) {
+	ctx, span := startConsumerSpanFromContext(ctx, string(spanNameScheduleMessage))
 	defer span.End()
 
 	if len(messages) <= 0 {
@@ -537,7 +564,7 @@ func (r *rpcClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, messa
 		msg.ApplicationProperties[serverTimeoutFieldName] = uint(time.Until(deadline) / time.Millisecond)
 	}
 
-	resp, err := r.doRPCWithRetry(ctx, r.ec.ManagementPath(), msg, 5, 5*time.Second)
+	resp, err := mc.doRPCWithRetry(ctx, msg, 5, 5*time.Second)
 	if err != nil {
 		tab.For(ctx).Error(err)
 		return nil, err
@@ -566,8 +593,8 @@ func (r *rpcClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, messa
 
 // CancelScheduled allows for removal of messages that have been handed to the Service Bus broker for later delivery,
 // but have not yet ben enqueued.
-func (r *rpcClient) CancelScheduled(ctx context.Context, seq ...int64) error {
-	ctx, span := startConsumerSpanFromContext(ctx, "sb.rpcClient.CancelScheduled")
+func (mc *mgmtClient) CancelScheduled(ctx context.Context, seq ...int64) error {
+	ctx, span := startConsumerSpanFromContext(ctx, string(spanNameCancelScheduledMessage))
 	defer span.End()
 
 	msg := &amqp.Message{
@@ -583,7 +610,7 @@ func (r *rpcClient) CancelScheduled(ctx context.Context, seq ...int64) error {
 		msg.ApplicationProperties[serverTimeoutFieldName] = uint(time.Until(deadline) / time.Millisecond)
 	}
 
-	resp, err := r.doRPCWithRetry(ctx, r.ec.ManagementPath(), msg, 5, 5*time.Second)
+	resp, err := mc.doRPCWithRetry(ctx, msg, 5, 5*time.Second)
 	if err != nil {
 		tab.For(ctx).Error(err)
 		return err
@@ -594,4 +621,26 @@ func (r *rpcClient) CancelScheduled(ctx context.Context, seq ...int64) error {
 	}
 
 	return nil
+}
+
+func (mc *mgmtClient) startSpan(ctx context.Context, operationName rpcSpanName) (context.Context, tab.Spanner) {
+	ctx, span := startConsumerSpanFromContext(ctx, string(operationName))
+	span.AddAttributes(tab.StringAttribute("message_bus.destination", mc.managementPath))
+	return ctx, span
+}
+
+func (mc *mgmtClient) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
+	ctx, span := startConsumerSpanFromContext(ctx, operationName)
+	span.AddAttributes(tab.StringAttribute("message_bus.destination", mc.managementPath))
+	return ctx, span
+}
+
+func (mc *mgmtClient) startProducerSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
+	ctx, span := tab.StartSpan(ctx, operationName)
+	applyComponentInfo(span)
+	span.AddAttributes(
+		tab.StringAttribute("span.kind", "producer"),
+		tab.StringAttribute("message_bus.destination", mc.managementPath),
+	)
+	return ctx, span
 }

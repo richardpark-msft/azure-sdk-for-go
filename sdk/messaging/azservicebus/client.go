@@ -90,7 +90,7 @@ func (client *Client) NewSender(queueOrTopic string) (*Sender, error) {
 }
 
 // NewReceiver creates a Receiver, which allows you to receive messages.
-func (client *Client) NewReceiver(options ...ReceiverOption) (*Receiver, error) {
+func (client *Client) NewReceiver(ns *internal.Namespace, options ...ReceiverOption) (*Receiver, error) {
 	receiver, err := newReceiver(client.namespace, options...)
 
 	if err != nil {
@@ -117,6 +117,10 @@ func (client *Client) Close(ctx context.Context) error {
 			tab.For(ctx).Error(err)
 			lastError = err
 		}
+	}
+
+	if err := client.namespace.Close(ctx); err != nil {
+		lastError = err
 	}
 
 	client.linksMu.Unlock()

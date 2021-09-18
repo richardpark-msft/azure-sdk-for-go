@@ -187,14 +187,6 @@ func ListSubscriptionsWithTop(top int) ListSubscriptionsOption {
 	}
 }
 
-// NewSubscriptionManager creates a new SubscriptionManager for a Service Bus Topic
-func (t *Topic) NewSubscriptionManager() *SubscriptionManager {
-	return &SubscriptionManager{
-		entityManager: newEntityManager(t.namespace.getHTTPSHostURI(), t.namespace.TokenProvider),
-		topicName:     t.Name,
-	}
-}
-
 // NewSubscriptionManager creates a new SubscriptionManger for a Service Bus Namespace
 func (ns *Namespace) NewSubscriptionManager(topicName string) (*SubscriptionManager, error) {
 	return &SubscriptionManager{
