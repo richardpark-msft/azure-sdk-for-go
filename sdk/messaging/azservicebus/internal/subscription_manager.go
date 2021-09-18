@@ -501,7 +501,7 @@ func (sm *SubscriptionManager) getRuleResourceURI(subscriptionName, ruleName str
 // SubscriptionWithBatchedOperations configures the subscription to batch server-side operations.
 func SubscriptionWithBatchedOperations() SubscriptionManagementOption {
 	return func(s *SubscriptionDescription) error {
-		s.EnableBatchedOperations = ptrBool(true)
+		s.EnableBatchedOperations = PtrBool(true)
 		return nil
 	}
 }
@@ -546,7 +546,7 @@ func SubscriptionWithLockDuration(window *time.Duration) SubscriptionManagementO
 			return fmt.Errorf("Lock duration must be shorter than 5 minutes got: %v", *window)
 		}
 
-		s.LockDuration = ptrString(durationTo8601Seconds(*window))
+		s.LockDuration = PtrString(durationTo8601Seconds(*window))
 		return nil
 	}
 }
@@ -554,7 +554,7 @@ func SubscriptionWithLockDuration(window *time.Duration) SubscriptionManagementO
 // SubscriptionWithRequiredSessions will ensure the subscription requires senders and receivers to have sessionIDs
 func SubscriptionWithRequiredSessions() SubscriptionManagementOption {
 	return func(s *SubscriptionDescription) error {
-		s.RequiresSession = ptrBool(true)
+		s.RequiresSession = PtrBool(true)
 		return nil
 	}
 }
@@ -563,7 +563,7 @@ func SubscriptionWithRequiredSessions() SubscriptionManagementOption {
 // letter queue
 func SubscriptionWithDeadLetteringOnMessageExpiration() SubscriptionManagementOption {
 	return func(s *SubscriptionDescription) error {
-		s.DeadLetteringOnMessageExpiration = ptrBool(true)
+		s.DeadLetteringOnMessageExpiration = PtrBool(true)
 		return nil
 	}
 }
@@ -576,7 +576,7 @@ func SubscriptionWithAutoDeleteOnIdle(window *time.Duration) SubscriptionManagem
 			if window.Minutes() < 5 {
 				return errors.New("window must be greater than 5 minutes")
 			}
-			s.AutoDeleteOnIdle = ptrString(durationTo8601Seconds(*window))
+			s.AutoDeleteOnIdle = PtrString(durationTo8601Seconds(*window))
 		}
 		return nil
 	}
@@ -591,7 +591,7 @@ func SubscriptionWithMessageTimeToLive(window *time.Duration) SubscriptionManage
 			duration := time.Duration(14 * 24 * time.Hour)
 			window = &duration
 		}
-		s.DefaultMessageTimeToLive = ptrString(durationTo8601Seconds(*window))
+		s.DefaultMessageTimeToLive = PtrString(durationTo8601Seconds(*window))
 		return nil
 	}
 }

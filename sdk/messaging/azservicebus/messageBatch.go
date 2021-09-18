@@ -120,3 +120,7 @@ func (mb *MessageBatch) toAMQPMessage() (*amqp.Message, error) {
 	}
 	return mb.batchEnvelope, nil
 }
+
+func (mb *MessageBatch) messageType() string {
+	return "Batch"
+}

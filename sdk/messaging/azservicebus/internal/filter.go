@@ -42,7 +42,7 @@ type (
 func (tf TrueFilter) ToFilterDescription() FilterDescription {
 	return FilterDescription{
 		Type:          "TrueFilter",
-		SQLExpression: ptrString("1=1"),
+		SQLExpression: PtrString("1=1"),
 	}
 }
 
@@ -50,7 +50,7 @@ func (tf TrueFilter) ToFilterDescription() FilterDescription {
 func (ff FalseFilter) ToFilterDescription() FilterDescription {
 	return FilterDescription{
 		Type:          "FalseFilter",
-		SQLExpression: ptrString("1!=1"),
+		SQLExpression: PtrString("1!=1"),
 	}
 }
 

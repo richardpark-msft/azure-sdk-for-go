@@ -236,7 +236,7 @@ func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seq
 
 	msg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
-			internal.OperationFieldName: "com.microsoft:receive-by-sequence-number",
+			"operation": "com.microsoft:receive-by-sequence-number",
 		},
 		Value: values,
 	}
@@ -308,7 +308,7 @@ func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64,
 
 	msg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
-			internal.OperationFieldName: internal.PeekMessageOperationID,
+			"operation": "com.microsoft:peek-message",
 		},
 		Value: map[string]interface{}{
 			"from-sequence-number": fromSequenceNumber,
@@ -408,40 +408,39 @@ func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64,
 	return transformedMessages, nil
 }
 
-func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, messages ...*ReceivedMessage) error {
+// RenewLocks renews the locks in a single 'com.microsoft:renew-lock' operation.
+// NOTE: this function assumes all the messages received on the same link.
+func (mc *mgmtClient) RenewLocks(ctx context.Context, messages ...*ReceivedMessage) (err error) {
 	ctx, span := spans.StartConsumerSpanFromContext(ctx, "sb.RenewLocks")
 	defer span.End()
 
-	var linkName string
+	if len(messages) == 0 {
+		return nil
+	}
+
+	var linkName string = messages[0].linkName
+
 	lockTokens := make([]amqp.UUID, 0, len(messages))
 	for _, m := range messages {
 		if m.LockToken == nil {
-			tab.For(ctx).Error(fmt.Errorf("failed: message has nil lock token, cannot renew lock"), tab.StringAttribute("messageId", m.ID))
-			continue
+			return fmt.Errorf("failed: message %s has nil lock token, cannot renew lock", m.ID)
 		}
 
 		amqpLockToken := amqp.UUID(*m.LockToken)
 		lockTokens = append(lockTokens, amqpLockToken)
-		if linkName == "" {
-			linkName = m.getLinkName()
-		}
-	}
-
-	if len(lockTokens) < 1 {
-		tab.For(ctx).Info("no lock tokens present to renew")
-		return nil
 	}
 
 	renewRequestMsg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
-			operationFieldName: lockRenewalOperationName,
+			"operation": "com.microsoft:renew-lock",
 		},
 		Value: map[string]interface{}{
-			lockTokensFieldName: lockTokens,
+			"lock-tokens": lockTokens,
 		},
 	}
+
 	if linkName != "" {
-		renewRequestMsg.ApplicationProperties[associatedLinkName] = linkName
+		renewRequestMsg.ApplicationProperties["associated-link-name"] = linkName
 	}
 
 	response, err := mc.doRPCWithRetry(ctx, renewRequestMsg, 3, 1*time.Second)
@@ -460,7 +459,7 @@ func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, messages 
 }
 
 func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID, state disposition) error {
-	ctx, span := startConsumerSpanFromContext(ctx, "sb.rpcClient.SendDisposition")
+	ctx, span := spans.StartConsumerSpanFromContext(ctx, "sb.rpcClient.SendDisposition")
 	defer span.End()
 
 	if lockToken == nil {
@@ -483,14 +482,9 @@ func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID,
 		value["deadletter-description"] = state.DeadLetterDescription
 	}
 
-	// if blah.useSession {
-	// 	value["session-id"] = blah.sessionID
-	// 	opts = append(opts, rpc.LinkWithSessionFilter(blah.sessionID))
-	// }
-
 	msg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
-			operationFieldName: "com.microsoft:update-disposition",
+			"operation": "com.microsoft:update-disposition",
 		},
 		Value: value,
 	}
@@ -508,7 +502,7 @@ func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID,
 // ScheduleAt will send a batch of messages to a Queue, schedule them to be enqueued, and return the sequence numbers
 // that can be used to cancel each message.
 func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, messages ...*Message) ([]int64, error) {
-	ctx, span := startConsumerSpanFromContext(ctx, string(spanNameScheduleMessage))
+	ctx, span := spans.StartConsumerSpanFromContext(ctx, string(spanNameScheduleMessage))
 	defer span.End()
 
 	if len(messages) <= 0 {
@@ -517,7 +511,8 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 
 	transformed := make([]interface{}, 0, len(messages))
 	for i := range messages {
-		messages[i].ScheduleAt(enqueueTime)
+		enqueueTimeAsUTC := enqueueTime.UTC()
+		messages[i].ScheduledEnqueueTime = &enqueueTimeAsUTC
 
 		if messages[i].ID == "" {
 			id, err := uuid.NewV4()
@@ -527,7 +522,7 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 			messages[i].ID = id.String()
 		}
 
-		rawAmqp, err := messages[i].toMsg()
+		rawAmqp, err := messages[i].toAMQPMessage()
 		if err != nil {
 			return nil, err
 		}
@@ -543,10 +538,10 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 		if messages[i].SessionID != nil {
 			individualMessage["session-id"] = *messages[i].SessionID
 		}
-		if partitionKey := messages[i].SystemProperties.PartitionKey; partitionKey != nil {
+		if partitionKey := messages[i].PartitionKey; partitionKey != nil {
 			individualMessage["partition-key"] = *partitionKey
 		}
-		if viaPartitionKey := messages[i].SystemProperties.ViaPartitionKey; viaPartitionKey != nil {
+		if viaPartitionKey := messages[i].TransactionPartitionKey; viaPartitionKey != nil {
 			individualMessage["via-partition-key"] = *viaPartitionKey
 		}
 
@@ -555,7 +550,7 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 
 	msg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
-			operationFieldName: scheduleMessageOperationID,
+			"operation": "com.microsoft:schedule-message",
 		},
 		Value: map[string]interface{}{
 			"messages": transformed,
@@ -563,7 +558,7 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 	}
 
 	if deadline, ok := ctx.Deadline(); ok {
-		msg.ApplicationProperties[serverTimeoutFieldName] = uint(time.Until(deadline) / time.Millisecond)
+		msg.ApplicationProperties["com.microsoft:server-timeout"] = uint(time.Until(deadline) / time.Millisecond)
 	}
 
 	resp, err := mc.doRPCWithRetry(ctx, msg, 5, 5*time.Second)
@@ -573,7 +568,7 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 	}
 
 	if resp.Code != 200 {
-		return nil, ErrAMQP(*resp)
+		return nil, internal.ErrAMQP(*resp)
 	}
 
 	retval := make([]int64, 0, len(messages))
@@ -586,22 +581,22 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 				}
 				return retval, nil
 			}
-			return nil, newErrIncorrectType(sequenceFieldName, []int64{}, rawArr)
+			return nil, internal.NewErrIncorrectType(sequenceFieldName, []int64{}, rawArr)
 		}
-		return nil, ErrMissingField(sequenceFieldName)
+		return nil, internal.ErrMissingField(sequenceFieldName)
 	}
-	return nil, newErrIncorrectType("value", map[string]interface{}{}, resp.Message.Value)
+	return nil, internal.NewErrIncorrectType("value", map[string]interface{}{}, resp.Message.Value)
 }
 
 // CancelScheduled allows for removal of messages that have been handed to the Service Bus broker for later delivery,
 // but have not yet ben enqueued.
 func (mc *mgmtClient) CancelScheduled(ctx context.Context, seq ...int64) error {
-	ctx, span := startConsumerSpanFromContext(ctx, string(spanNameCancelScheduledMessage))
+	ctx, span := spans.StartConsumerSpanFromContext(ctx, string(spanNameCancelScheduledMessage))
 	defer span.End()
 
 	msg := &amqp.Message{
 		ApplicationProperties: map[string]interface{}{
-			operationFieldName: cancelScheduledOperationID,
+			"operation": "com.microsoft:cancel-scheduled-message",
 		},
 		Value: map[string]interface{}{
 			"sequence-numbers": seq,
@@ -609,7 +604,7 @@ func (mc *mgmtClient) CancelScheduled(ctx context.Context, seq ...int64) error {
 	}
 
 	if deadline, ok := ctx.Deadline(); ok {
-		msg.ApplicationProperties[serverTimeoutFieldName] = uint(time.Until(deadline) / time.Millisecond)
+		msg.ApplicationProperties["com.microsoft:server-timeout"] = uint(time.Until(deadline) / time.Millisecond)
 	}
 
 	resp, err := mc.doRPCWithRetry(ctx, msg, 5, 5*time.Second)
@@ -619,27 +614,27 @@ func (mc *mgmtClient) CancelScheduled(ctx context.Context, seq ...int64) error {
 	}
 
 	if resp.Code != 200 {
-		return ErrAMQP(*resp)
+		return internal.ErrAMQP(*resp)
 	}
 
 	return nil
 }
 
 func (mc *mgmtClient) startSpan(ctx context.Context, operationName rpcSpanName) (context.Context, tab.Spanner) {
-	ctx, span := startConsumerSpanFromContext(ctx, string(operationName))
+	ctx, span := spans.StartConsumerSpanFromContext(ctx, string(operationName))
 	span.AddAttributes(tab.StringAttribute("message_bus.destination", mc.managementPath))
 	return ctx, span
 }
 
 func (mc *mgmtClient) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
-	ctx, span := startConsumerSpanFromContext(ctx, operationName)
+	ctx, span := spans.StartConsumerSpanFromContext(ctx, operationName)
 	span.AddAttributes(tab.StringAttribute("message_bus.destination", mc.managementPath))
 	return ctx, span
 }
 
 func (mc *mgmtClient) startProducerSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
 	ctx, span := tab.StartSpan(ctx, operationName)
-	applyComponentInfo(span)
+	spans.ApplyComponentInfo(span)
 	span.AddAttributes(
 		tab.StringAttribute("span.kind", "producer"),
 		tab.StringAttribute("message_bus.destination", mc.managementPath),

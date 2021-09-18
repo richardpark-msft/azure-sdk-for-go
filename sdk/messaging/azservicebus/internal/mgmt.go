@@ -303,14 +303,14 @@ func xmlDoc(content []byte) []byte {
 	return []byte(xml.Header + string(content))
 }
 
-// ptrBool takes a boolean and returns a pointer to that bool. For use in literal pointers, ptrBool(true) -> *bool
-func ptrBool(toPtr bool) *bool {
+// PtrBool takes a boolean and returns a pointer to that bool. For use in literal pointers, PtrBool(true) -> *bool
+func PtrBool(toPtr bool) *bool {
 	return &toPtr
 }
 
-// ptrString takes a string and returns a pointer to that string. For use in literal pointers,
-// ptrString(fmt.Sprintf("..", foo)) -> *string
-func ptrString(toPtr string) *string {
+// PtrString takes a string and returns a pointer to that string. For use in literal pointers,
+// PtrString(fmt.Sprintf("..", foo)) -> *string
+func PtrString(toPtr string) *string {
 	return &toPtr
 }
 

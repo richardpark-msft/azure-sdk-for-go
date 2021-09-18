@@ -6,8 +6,6 @@ package azservicebus
 import (
 	"testing"
 
-	"github.com/Azure/azure-amqp-common-go/v3/uuid"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/stretchr/testify/require"
 )
@@ -27,7 +25,7 @@ func TestMessageUnitTest(t *testing.T) {
 			Body:                    []byte("the body"),
 			PartitionKey:            to.StringPtr("partition key"),
 			TransactionPartitionKey: to.StringPtr("via partition key"),
-			SessionID:               "session id",
+			SessionID:               to.StringPtr("session id"),
 		}
 
 		amqpMessage, err = message.toAMQPMessage()
@@ -43,33 +41,6 @@ func TestMessageUnitTest(t *testing.T) {
 			annotationPartitionKey:    "partition key",
 			annotationViaPartitionKey: "via partition key",
 		}, amqpMessage.Annotations)
-	})
-
-	t.Run("convertLegacyMessage", func(t *testing.T) {
-		receivedMessage := convertToReceivedMessage(&internal.Message{})
-
-		require.EqualValues(t, "", receivedMessage.LockToken)
-		require.EqualValues(t, 0, receivedMessage.SequenceNumber)
-		require.Nil(t, receivedMessage.PartitionKey)
-		require.Nil(t, receivedMessage.TransactionPartitionKey) // `ViaPartitionKey`
-
-		uuid, err := uuid.NewV4()
-		require.NoError(t, err)
-
-		receivedMessage = convertToReceivedMessage(&internal.Message{
-			LockToken: &uuid,
-			SystemProperties: &internal.SystemProperties{
-				SequenceNumber:  to.Int64Ptr(111),
-				PartitionID:     toInt16Ptr(101),
-				ViaPartitionKey: to.StringPtr("via partition key"),
-				PartitionKey:    to.StringPtr("partition key"),
-			},
-		})
-
-		require.EqualValues(t, uuid.String(), receivedMessage.LockToken)
-		require.EqualValues(t, 111, receivedMessage.SequenceNumber)
-		require.EqualValues(t, "partition key", *receivedMessage.PartitionKey)
-		require.EqualValues(t, "via partition key", *receivedMessage.TransactionPartitionKey) // `ViaPartitionKey`
 	})
 }
 

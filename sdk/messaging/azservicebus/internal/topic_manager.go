@@ -256,7 +256,7 @@ func TopicWithMaxSizeInMegabytes(size int) TopicManagementOption {
 // TopicWithPartitioning configures the topic to be partitioned across multiple message brokers.
 func TopicWithPartitioning() TopicManagementOption {
 	return func(t *TopicDescription) error {
-		t.EnablePartitioning = ptrBool(true)
+		t.EnablePartitioning = PtrBool(true)
 		return nil
 	}
 }
@@ -264,7 +264,7 @@ func TopicWithPartitioning() TopicManagementOption {
 // TopicWithOrdering configures the topic to support ordering of messages.
 func TopicWithOrdering() TopicManagementOption {
 	return func(t *TopicDescription) error {
-		t.SupportOrdering = ptrBool(true)
+		t.SupportOrdering = PtrBool(true)
 		return nil
 	}
 }
@@ -273,9 +273,9 @@ func TopicWithOrdering() TopicManagementOption {
 // is not specified, then it uses the default of 10 minutes.
 func TopicWithDuplicateDetection(window *time.Duration) TopicManagementOption {
 	return func(t *TopicDescription) error {
-		t.RequiresDuplicateDetection = ptrBool(true)
+		t.RequiresDuplicateDetection = PtrBool(true)
 		if window != nil {
-			t.DuplicateDetectionHistoryTimeWindow = ptrString(durationTo8601Seconds(*window))
+			t.DuplicateDetectionHistoryTimeWindow = PtrString(durationTo8601Seconds(*window))
 		}
 		return nil
 	}
@@ -284,7 +284,7 @@ func TopicWithDuplicateDetection(window *time.Duration) TopicManagementOption {
 // TopicWithExpress configures the topic to hold a message in memory temporarily before writing it to persistent storage.
 func TopicWithExpress() TopicManagementOption {
 	return func(t *TopicDescription) error {
-		t.EnableExpress = ptrBool(true)
+		t.EnableExpress = PtrBool(true)
 		return nil
 	}
 }
@@ -292,7 +292,7 @@ func TopicWithExpress() TopicManagementOption {
 // TopicWithBatchedOperations configures the topic to batch server-side operations.
 func TopicWithBatchedOperations() TopicManagementOption {
 	return func(t *TopicDescription) error {
-		t.EnableBatchedOperations = ptrBool(true)
+		t.EnableBatchedOperations = PtrBool(true)
 		return nil
 	}
 }
@@ -305,7 +305,7 @@ func TopicWithAutoDeleteOnIdle(window *time.Duration) TopicManagementOption {
 			if window.Minutes() < 5 {
 				return errors.New("TopicWithAutoDeleteOnIdle: window must be greater than 5 minutes")
 			}
-			t.AutoDeleteOnIdle = ptrString(durationTo8601Seconds(*window))
+			t.AutoDeleteOnIdle = PtrString(durationTo8601Seconds(*window))
 		}
 		return nil
 	}
@@ -320,7 +320,7 @@ func TopicWithMessageTimeToLive(window *time.Duration) TopicManagementOption {
 			duration := time.Duration(14 * 24 * time.Hour)
 			window = &duration
 		}
-		t.DefaultMessageTimeToLive = ptrString(durationTo8601Seconds(*window))
+		t.DefaultMessageTimeToLive = PtrString(durationTo8601Seconds(*window))
 		return nil
 	}
 }

@@ -16,7 +16,7 @@ type (
 	ReceivedMessage struct {
 		Message
 
-		LockToken              *uuid.UUID
+		LockToken              *amqp.UUID
 		DeliveryCount          uint32
 		LockedUntil            *time.Time `mapstructure:"x-opt-locked-until"`
 		SequenceNumber         *int64     // :"x-opt-sequence-number"`
@@ -29,7 +29,12 @@ type (
 
 		// internal bookkeeping
 		rawAMQPMessage *amqp.Message
-		linkRevision   uint64
+
+		// the actual AMQP link ID this message was received on.
+		linkName string
+
+		// the 'revision' of the link we received on (ie, if it was recovered it won't match)
+		linkRevision uint64
 	}
 
 	// Message is a SendableMessage which can be sent using a Client.NewSender().
@@ -93,6 +98,10 @@ func (m *Message) Set(key string, value interface{}) {
 // GetKeyValues implements tab.Carrier
 func (m *Message) GetKeyValues() map[string]interface{} {
 	return m.ApplicationProperties
+}
+
+func (m *Message) messageType() string {
+	return "Message"
 }
 
 func (m *Message) toAMQPMessage() (*amqp.Message, error) {
@@ -287,7 +296,7 @@ func newReceivedMessage(body []byte, amqpMsg *amqp.Message) (*ReceivedMessage, e
 
 	if token, ok := amqpMsg.DeliveryAnnotations[lockTokenName]; ok {
 		if id, ok := token.(amqp.UUID); ok {
-			sid := uuid.UUID([16]byte(id))
+			sid := amqp.UUID([16]byte(id))
 			msg.LockToken = &sid
 		}
 	}
@@ -296,11 +305,11 @@ func newReceivedMessage(body []byte, amqpMsg *amqp.Message) (*ReceivedMessage, e
 	return msg, nil
 }
 
-func lockTokenFromMessageTag(msg *amqp.Message) (*uuid.UUID, error) {
+func lockTokenFromMessageTag(msg *amqp.Message) (*amqp.UUID, error) {
 	return uuidFromLockTokenBytes(msg.DeliveryTag)
 }
 
-func uuidFromLockTokenBytes(bytes []byte) (*uuid.UUID, error) {
+func uuidFromLockTokenBytes(bytes []byte) (*amqp.UUID, error) {
 	if len(bytes) != 16 {
 		return nil, fmt.Errorf("invalid lock token, token was not 16 bytes long")
 	}
@@ -319,7 +328,7 @@ func uuidFromLockTokenBytes(bytes []byte) (*uuid.UUID, error) {
 	swapIndex(1, 2, &lockTokenBytes)
 	swapIndex(4, 5, &lockTokenBytes)
 	swapIndex(6, 7, &lockTokenBytes)
-	amqpUUID := uuid.UUID(lockTokenBytes)
+	amqpUUID := amqp.UUID(lockTokenBytes)
 
 	return &amqpUUID, nil
 }

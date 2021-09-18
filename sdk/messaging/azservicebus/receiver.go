@@ -53,9 +53,9 @@ type Receiver struct {
 		}
 	}
 
-	mu      sync.Mutex
-	links   *links
-	settler *settler
+	mu    sync.Mutex
+	links *links
+	*settler
 }
 
 const defaultLinkRxBuffer = 2048
@@ -134,7 +134,6 @@ func newReceiver(ns *internal.Namespace, options ...ReceiverOption) (*Receiver, 
 		}{
 			ReceiveMode: PeekLock,
 		},
-		linkState: newLinkState(context.Background(), errClosed{link: "receiver"}),
 	}
 
 	for _, opt := range options {
@@ -152,7 +151,11 @@ func newReceiver(ns *internal.Namespace, options ...ReceiverOption) (*Receiver, 
 	receiver.config.FullEntityPath = entityPath
 
 	receiver.links = internal.NewLinks(ns, entityPath, receiver.linkCreator)
-	receiver.settler = &settler{links}
+
+	// 'nil' settler handles returning an error message for receiveAndDelete links.
+	if receiver.config.ReceiveMode == PeekLock {
+		receiver.settler = &settler{links: links}
+	}
 
 	return receiver, nil
 }
@@ -286,29 +289,29 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 }
 
 // CompleteMessage completes a message, deleting it from the queue or subscription.
-func (r *Receiver) CompleteMessage(ctx context.Context, message *ReceivedMessage) error {
-	return r.settler.Complete(ctx, message)
-}
+// func (r *Receiver) CompleteMessage(ctx context.Context, message *ReceivedMessage) error {
+// 	return r.settler.Complete(ctx, message)
+// }
 
 // DeadLetterMessage settles a message by moving it to the dead letter queue for a
 // queue or subscription.
-func (r *Receiver) DeadLetterMessage(ctx context.Context, message *ReceivedMessage) error {
-	// TODO: dead letter reasons.
-	return r.settler.DeadLetter(ctx, message)
-}
+// func (r *Receiver) DeadLetterMessage(ctx context.Context, message *ReceivedMessage) error {
+// 	// TODO: dead letter reasons.
+// 	return r.settler.DeadLetter(ctx, message)
+// }
 
 // AbandonMessage will cause a message to be returned to the queue or subscription.
 // This will increment its delivery count, and potentially cause it to be dead lettered
 // depending on your queue or subscription's configuration.
-func (r *Receiver) AbandonMessage(ctx context.Context, message *ReceivedMessage) error {
-	return r.settler.Abandon(ctx, message)
-}
+// func (r *Receiver) AbandonMessage(ctx context.Context, message *ReceivedMessage) error {
+// 	return r.settler.Abandon(ctx, message)
+// }
 
-// DeferMessage will cause a message to be deferred.
-// Messages that are deferred by can be retrieved using `Receiver.ReceiveDeferredMessages()`.
-func (r *Receiver) DeferMessage(ctx context.Context, message *ReceivedMessage) error {
-	return r.settler.Defer(ctx, message)
-}
+// // DeferMessage will cause a message to be deferred.
+// // Messages that are deferred by can be retrieved using `Receiver.ReceiveDeferredMessages()`.
+// func (r *Receiver) DeferMessage(ctx context.Context, message *ReceivedMessage) error {
+// 	return r.settler.Defer(ctx, message)
+// }
 
 // Close permanently closes the receiver.
 func (r *Receiver) Close(ctx context.Context) error {

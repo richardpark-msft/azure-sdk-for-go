@@ -123,7 +123,7 @@ eliminate duplicate messages
 */
 func QueueEntityWithPartitioning() QueueManagementOption {
 	return func(queue *QueueDescription) error {
-		queue.EnablePartitioning = ptrBool(true)
+		queue.EnablePartitioning = PtrBool(true)
 		return nil
 	}
 }
@@ -147,9 +147,9 @@ func QueueEntityWithMaxSizeInMegabytes(size int) QueueManagementOption {
 // is not specified, then it uses the default of 10 minutes.
 func QueueEntityWithDuplicateDetection(window *time.Duration) QueueManagementOption {
 	return func(q *QueueDescription) error {
-		q.RequiresDuplicateDetection = ptrBool(true)
+		q.RequiresDuplicateDetection = PtrBool(true)
 		if window != nil {
-			q.DuplicateDetectionHistoryTimeWindow = ptrString(durationTo8601Seconds(*window))
+			q.DuplicateDetectionHistoryTimeWindow = PtrString(durationTo8601Seconds(*window))
 		}
 		return nil
 	}
@@ -158,7 +158,7 @@ func QueueEntityWithDuplicateDetection(window *time.Duration) QueueManagementOpt
 // QueueEntityWithRequiredSessions will ensure the queue requires senders and receivers to have sessionIDs
 func QueueEntityWithRequiredSessions() QueueManagementOption {
 	return func(q *QueueDescription) error {
-		q.RequiresSession = ptrBool(true)
+		q.RequiresSession = PtrBool(true)
 		return nil
 	}
 }
@@ -166,7 +166,7 @@ func QueueEntityWithRequiredSessions() QueueManagementOption {
 // QueueEntityWithDeadLetteringOnMessageExpiration will ensure the queue sends expired messages to the dead letter queue
 func QueueEntityWithDeadLetteringOnMessageExpiration() QueueManagementOption {
 	return func(q *QueueDescription) error {
-		q.DeadLetteringOnMessageExpiration = ptrBool(true)
+		q.DeadLetteringOnMessageExpiration = PtrBool(true)
 		return nil
 	}
 }
@@ -179,7 +179,7 @@ func QueueEntityWithAutoDeleteOnIdle(window *time.Duration) QueueManagementOptio
 			if window.Minutes() < 5 {
 				return errors.New("QueueEntityWithAutoDeleteOnIdle: window must be greater than 5 minutes")
 			}
-			q.AutoDeleteOnIdle = ptrString(durationTo8601Seconds(*window))
+			q.AutoDeleteOnIdle = PtrString(durationTo8601Seconds(*window))
 		}
 		return nil
 	}
@@ -194,7 +194,7 @@ func QueueEntityWithMessageTimeToLive(window *time.Duration) QueueManagementOpti
 			duration := time.Duration(14 * 24 * time.Hour)
 			window = &duration
 		}
-		q.DefaultMessageTimeToLive = ptrString(durationTo8601Seconds(*window))
+		q.DefaultMessageTimeToLive = PtrString(durationTo8601Seconds(*window))
 		return nil
 	}
 }
@@ -208,7 +208,7 @@ func QueueEntityWithLockDuration(window *time.Duration) QueueManagementOption {
 			duration := time.Duration(1 * time.Minute)
 			window = &duration
 		}
-		q.LockDuration = ptrString(durationTo8601Seconds(*window))
+		q.LockDuration = PtrString(durationTo8601Seconds(*window))
 		return nil
 	}
 }
