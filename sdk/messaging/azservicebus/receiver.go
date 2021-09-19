@@ -11,21 +11,22 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpsb"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
 )
 
-// ReceiveMode represents the lock style to use for a reciever - either
+// ReceiveMode represents the lock style to use for a receiver - either
 // `PeekLock` or `ReceiveAndDelete`
-type ReceiveMode int
+type ReceiveMode = internal.ReceiveMode
 
 const (
 	// PeekLock will lock messages as they are received and can be settled
 	// using the Receiver or Processor's (Complete|Abandon|DeadLetter|Defer)Message
 	// functions.
-	PeekLock ReceiveMode = 0
+	PeekLock ReceiveMode = internal.PeekLock
 	// ReceiveAndDelete will delete messages as they are received.
-	ReceiveAndDelete ReceiveMode = 1
+	ReceiveAndDelete ReceiveMode = internal.ReceiveAndDelete
 )
 
 // SubQueue allows you to target a subqueue of a queue or subscription.
@@ -53,9 +54,9 @@ type Receiver struct {
 		}
 	}
 
-	mu    sync.Mutex
-	links *links
-	*settler
+	mu        sync.Mutex
+	amqpLinks *amqpsb.Links
+	*messageSettler
 }
 
 const defaultLinkRxBuffer = 2048
@@ -150,11 +151,11 @@ func newReceiver(ns *internal.Namespace, options ...ReceiverOption) (*Receiver, 
 
 	receiver.config.FullEntityPath = entityPath
 
-	receiver.links = internal.NewLinks(ns, entityPath, receiver.linkCreator)
+	receiver.amqpLinks = amqpsb.New(ns, entityPath, receiver.linkCreator)
 
 	// 'nil' settler handles returning an error message for receiveAndDelete links.
 	if receiver.config.ReceiveMode == PeekLock {
-		receiver.settler = &settler{links: links}
+		receiver.settler = &messageSettler{links: amqpLinks}
 	}
 
 	return receiver, nil
@@ -212,7 +213,7 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 		}
 	}
 
-	_, receiver, _, err := r.links.Get(ctx)
+	_, receiver, _, err := r.amqpLinks.Get(ctx)
 
 	if err != nil {
 		return nil, err
@@ -315,7 +316,7 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 
 // Close permanently closes the receiver.
 func (r *Receiver) Close(ctx context.Context) error {
-	return r.links.Close(ctx)
+	return r.amqpLinks.Close(ctx)
 }
 
 type entity struct {

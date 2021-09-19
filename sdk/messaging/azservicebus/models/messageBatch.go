@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-package azservicebus
+package models
 
 import (
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
@@ -9,11 +9,16 @@ import (
 )
 
 type (
-	// MessageBatch represents a batch of messages to send to Service Bus in a single message
+	// MessageBatch represents a batch of messages to send to Service Bus in a single message.
+	// Use `Sender.NewMessageBatch` to create a message batch that's sized properly for your
+	// link.
 	MessageBatch struct {
+		// MaxBytes represents the maximum number of bytes you can add to this
+		// batch before MessageBatch.Add() fails.
+		MaxBytes int
+
 		marshaledMessages [][]byte
 		batchEnvelope     *amqp.Message
-		maxBytes          int
 		size              int
 	}
 )
@@ -24,15 +29,6 @@ const (
 	// TODO: should be calculated, not just a constant.
 	batchMessageWrapperSize = 100
 )
-
-// NewMessageBatch builds a new message batch with a default standard max message size
-func newMessageBatch(maxBytes int) *MessageBatch {
-	mb := &MessageBatch{
-		maxBytes: maxBytes,
-	}
-
-	return mb
-}
 
 type MessageTooLarge interface {
 	MessageTooLarge()
@@ -51,7 +47,7 @@ func (e errMessageTooLarge) MessageTooLarge() {}
 // Add adds a message to the batch if the message will not exceed the max size of the batch
 // If the message is too large, an error of type 'ErrMessageTooLarge' will be returned.
 func (mb *MessageBatch) Add(m *Message) error {
-	msg, err := m.toAMQPMessage()
+	msg, err := m.ToAMQPMessage()
 	if err != nil {
 		return err
 	}
@@ -73,7 +69,7 @@ func (mb *MessageBatch) Add(m *Message) error {
 		return err
 	}
 
-	if mb.Size()+len(bin) > int(mb.maxBytes) {
+	if mb.Size()+len(bin) > int(mb.MaxBytes) {
 		return &errMessageTooLarge{}
 	}
 
@@ -82,7 +78,7 @@ func (mb *MessageBatch) Add(m *Message) error {
 	if len(mb.marshaledMessages) == 0 {
 		// first message, store it since we need to copy attributes from it
 		// when we send the overall batch message.
-		amqpMessage, err := m.toAMQPMessage()
+		amqpMessage, err := m.ToAMQPMessage()
 
 		if err != nil {
 			return err
@@ -111,7 +107,7 @@ func (mb *MessageBatch) Len() int {
 
 // toAMQPMessage converts this batch into a sendable *amqp.Message
 // NOTE: not idempotent!
-func (mb *MessageBatch) toAMQPMessage() (*amqp.Message, error) {
+func (mb *MessageBatch) ToAMQPMessage() (*amqp.Message, error) {
 	mb.batchEnvelope.Data = make([][]byte, len(mb.marshaledMessages))
 	mb.batchEnvelope.Format = batchMessageFormat
 
@@ -121,6 +117,6 @@ func (mb *MessageBatch) toAMQPMessage() (*amqp.Message, error) {
 	return mb.batchEnvelope, nil
 }
 
-func (mb *MessageBatch) messageType() string {
+func (mb *MessageBatch) MessageType() string {
 	return "Batch"
 }

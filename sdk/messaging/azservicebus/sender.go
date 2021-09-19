@@ -8,6 +8,9 @@ import (
 
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpsb"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/spans"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/models"
 	"github.com/Azure/go-amqp"
 	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/devigned/tab"
@@ -20,14 +23,14 @@ type (
 	// Sender is used to send messages as well as schedule them to be delivered at a later date.
 	Sender struct {
 		queueOrTopic string
-		links        *links
+		links        *amqpsb.Links
 	}
 
 	// SendableMessage are sendable using Sender.SendMessage.
 	// Message, MessageBatch implement this interface.
 	SendableMessage interface {
-		toAMQPMessage() (*amqp.Message, error)
-		messageType() string
+		ToAMQPMessage() (*amqp.Message, error)
+		MessageType() string
 	}
 )
 
@@ -56,8 +59,8 @@ func MessageBatchWithMaxSize(maxSizeInBytes int) func(options *messageBatchOptio
 // NewMessageBatch can be used to create a batch that contain multiple
 // messages. Sending a batch of messages is more efficient than sending the
 // messages one at a time.
-func (s *Sender) NewMessageBatch(ctx context.Context, options ...MessageBatchOption) (*MessageBatch, error) {
-	sender, _, _, err := s.links.Get(ctx)
+func (s *Sender) NewMessageBatch(ctx context.Context, options ...MessageBatchOption) (*models.MessageBatch, error) {
+	sender, _, _, _, err := s.links.Get(ctx)
 
 	if err != nil {
 		return nil, err
@@ -73,7 +76,7 @@ func (s *Sender) NewMessageBatch(ctx context.Context, options ...MessageBatchOpt
 		}
 	}
 
-	return newMessageBatch(*opts.maxSizeInBytes), nil
+	return &models.MessageBatch{MaxBytes: *opts.maxSizeInBytes}, nil
 }
 
 // SendMessage sends a message to a queue or topic.
@@ -137,7 +140,7 @@ func newSender(ns *internal.Namespace, queueOrTopic string) (*Sender, error) {
 		queueOrTopic: queueOrTopic,
 	}
 
-	sender.links = newLinks(ns, queueOrTopic, sender.createSenderLink)
+	sender.links = newAMQPLinks(ns, queueOrTopic, sender.createSenderLink)
 	return sender, nil
 }
 

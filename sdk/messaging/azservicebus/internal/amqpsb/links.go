@@ -1,4 +1,4 @@
-package azservicebus
+package amqpsb
 
 import (
 	"context"
@@ -14,13 +14,15 @@ import (
 
 type createLinkFunc func(ctx context.Context, session *amqp.Session) (*amqp.Sender, *amqp.Receiver, error)
 
-// Links groups together:
-// - An AMQP link (either *amqp.Sender or *amqp.Receiver)
+// Links manages the set of AMQP Links (and detritus) typically needed to work
+//  within Service Bus:
+// - An *goamqp.Sender or *goamqp.Receiver AMQP link (could also be 'both' if needed)
 // - A `$management` link
-// - an AMQP Session
-// And centralizes recovery (`Recover`) and creation (`Get`) of
-// links.
-type links struct {
+// - an *goamqp.Session
+//
+// State management can be done through Recover (close and reopen), Close (close permanently, return failures)
+// and Get() (retrieve latest version of all Links, or create if needed).
+type Links struct {
 	EntityPath     string
 	ManagementPath string
 	createLink     createLinkFunc
@@ -33,8 +35,8 @@ type links struct {
 	// the AMQP session for either the 'sender' or 'receiver' link
 	session *amqp.Session
 
-	// these are mutually exclusive - we don't expect `linkCreatorFn`
-	// to populate both.
+	// these are populated by your `createLinkFunc` when you construct
+	// the amqpLinks
 	sender   *amqp.Sender
 	receiver *amqp.Receiver
 
@@ -52,10 +54,10 @@ type links struct {
 	ns *internal.Namespace
 }
 
-// NewLinkish creates a session, starts the claim refresher and creates an associated
+// New creates a session, starts the claim refresher and creates an associated
 // management link for a specific entity path.
-func newLinks(ns *internal.Namespace, entityPath string, createLink createLinkFunc) *links {
-	l := &links{
+func New(ns *internal.Namespace, entityPath string, createLink createLinkFunc) *Links {
+	l := &Links{
 		EntityPath:        entityPath,
 		ManagementPath:    fmt.Sprintf("%s/$management", entityPath),
 		createLink:        createLink,
@@ -69,30 +71,30 @@ func newLinks(ns *internal.Namespace, entityPath string, createLink createLinkFu
 
 // Recover will recycle all associated links (mgmt, receiver, sender and session)
 // and recreate them using the link.linkCreator function.
-func (l *links) Recover(ctx context.Context) error {
-	l.mu.RLock()
-	closedPermanently := l.closedPermanently
-	l.mu.RUnlock()
+func (links *Links) Recover(ctx context.Context) error {
+	links.mu.RLock()
+	closedPermanently := links.closedPermanently
+	links.mu.RUnlock()
 
 	if closedPermanently {
 		return amqp.ErrLinkClosed
 	}
 
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	links.mu.Lock()
+	defer links.mu.Unlock()
 
-	l.revision++
+	links.revision++
 
-	if err := l.closeWithoutLocking(ctx, false); err != nil {
+	if err := links.closeWithoutLocking(ctx, false); err != nil {
 		tab.For(ctx)
 	}
 
-	return l.initWithoutLocking(ctx)
+	return links.initWithoutLocking(ctx)
 }
 
 // Get will initialize a session and call its link.linkCreator function.
 // If this link has been closed via Close() it will return ErrLinkClosed.
-func (l *links) Get(ctx context.Context) (*amqp.Sender, *amqp.Receiver, *mgmtClient, uint64, error) {
+func (l *Links) Get(ctx context.Context) (*amqp.Sender, *amqp.Receiver, *mgmtClient, uint64, error) {
 	l.mu.RLock()
 	sender, receiver, mgmt, closedPermanently := l.sender, l.receiver, l.mgmt, l.closedPermanently
 	l.mu.RUnlock()
@@ -117,14 +119,14 @@ func (l *links) Get(ctx context.Context) (*amqp.Sender, *amqp.Receiver, *mgmtCli
 
 // Close will close the the link permanently.
 // Any further calls to Get()/Recover() to return ErrLinkClosed.
-func (l *links) Close(ctx context.Context) error {
+func (l *Links) Close(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.closeWithoutLocking(ctx, true)
 }
 
 // initWithoutLocking will create a new link, unconditionally.
-func (l *links) initWithoutLocking(ctx context.Context) error {
+func (l *Links) initWithoutLocking(ctx context.Context) error {
 	client, err := l.ns.GetAMQPClient(ctx)
 
 	if err != nil {
@@ -164,7 +166,7 @@ func (l *links) initWithoutLocking(ctx context.Context) error {
 
 // close closes the link.
 // NOTE: No locking is done in this function, call `Close` if you require locking.
-func (l *links) closeWithoutLocking(ctx context.Context, permanent bool) error {
+func (l *Links) closeWithoutLocking(ctx context.Context, permanent bool) error {
 	if l.closedPermanently {
 		return amqp.ErrLinkClosed
 	}

@@ -5,12 +5,14 @@ package azservicebus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpsb"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/models"
 	"github.com/Azure/go-amqp"
 )
 
@@ -28,6 +30,8 @@ type processorConfig struct {
 
 // Processor is a push-based receiver for Service Bus.
 type Processor struct {
+	*messageSettler
+
 	// configuration data that is read-only after the Processor has been created
 	config processorConfig
 
@@ -41,15 +45,7 @@ type Processor struct {
 
 	activeReceiversWg *sync.WaitGroup
 
-	// replaceable for unit tests
-	subscribe func(
-		ctx context.Context,
-		links *links,
-		shouldAutoComplete bool,
-		handleMessage func(message *ReceivedMessage) error,
-		notifyError func(err error)) bool
-
-	links *links
+	links *amqpsb.Links
 }
 
 // ProcessorOption represents an option on the Processor.
@@ -132,19 +128,10 @@ func newProcessor(ns *internal.Namespace, options ...ProcessorOption) (*Processo
 			ReceiveMode:        PeekLock,
 			ShouldAutoComplete: true,
 			MaxConcurrentCalls: 1,
-			RetryOptions: struct {
-				Times int
-				Delay time.Duration
-			}{
-				// TODO: allow these to be configured.
-				Times: 10,
-				Delay: time.Second * 5,
-			},
 		},
 
 		mu:                &sync.Mutex{},
 		activeReceiversWg: &sync.WaitGroup{},
-		subscribe:         subscribe,
 	}
 
 	for _, opt := range options {
@@ -160,18 +147,17 @@ func newProcessor(ns *internal.Namespace, options ...ProcessorOption) (*Processo
 	}
 
 	processor.config.FullEntityPath = entityPath
-	processor.links = internal.NewLinks(ns, entityPath, processor.createReceiverLink)
 
+	createReceiverLink := func(ctx context.Context, session *amqp.Session) (*amqp.Sender, *amqp.Receiver, error) {
+		options := createLinkOptions(processor.config.ReceiveMode, processor.config.FullEntityPath)
+		return createReceiverLink(ctx, session, options)
+	}
+
+	processor.links = newAMQPLinks(ns, entityPath, createReceiverLink)
 	processor.processorCtx, processor.cancelProcessor = context.WithCancel(context.Background())
 	processor.receiversCtx, processor.cancelReceivers = context.WithCancel(context.Background())
 
 	return processor, nil
-}
-
-// compatible with `CreateLinkFunc`
-func (p *Processor) createReceiverLink(ctx context.Context, session *amqp.Session) (*amqp.Sender, *amqp.Receiver, error) {
-	options := createLinkOptions(p.config.ReceiveMode, p.config.FullEntityPath)
-	return createReceiverLink(ctx, session, options)
 }
 
 // Start will start receiving messages from the queue or subscription.
@@ -185,7 +171,7 @@ func (p *Processor) createReceiverLink(ctx context.Context, session *amqp.Sessio
 // Any errors that occur (such as network disconnects, failures in handleMessage) will be
 // sent to your handleError function. The processor will retry and restart as needed -
 // no user intervention is required.
-func (p *Processor) Start(handleMessage func(message *ReceivedMessage) error, handleError func(err error)) error {
+func (p *Processor) Start(handleMessage func(message *models.ReceivedMessage) error, handleError func(err error)) error {
 	select {
 	case <-p.Done():
 		return errClosed{link: "processor"}
@@ -200,24 +186,26 @@ func (p *Processor) Start(handleMessage func(message *ReceivedMessage) error, ha
 	go func(ctx context.Context) {
 		defer p.activeReceiversWg.Done()
 
+		// the cycle for the processor is:
+		//
+		//   err = subscribe()
+		//   if err is fatal to link
+		//     restart link
+		//
+		//
+		//
 		for {
-			backoff := internal.DefaultBackoffPolicy
+			retryPolicy := internal.DefaultRetryPolicy
 
-			for i := 0; i < p.config.RetryOptions.Times; i++ {
-				// we retry infinitely, but do it in the pattern they specify via their retryOptions for each "round" of retries.
-				retry := p.subscribe(ctx, links, p.config.MaxConcurrentCalls, p.config.ShouldAutoComplete, handleMessage, handleError)
+			for retryPolicy.Try(ctx, errors.New("subscribe() attempting to recover")) {
+				// we retryable infinitely, but do it in the pattern they specify via their retryOptions for each "round" of retries.
+				retryable := p.subscribe(ctx, handleMessage, handleError)
 
-				if !retry {
-					break
-				}
-
-				select {
-				case <-time.After(backoff.Duration()):
+				if !retryable {
 					if err := p.links.Recover(ctx); err != nil {
 						handleError(err)
 					}
-				case <-ctx.Done():
-					return ctx.Err()
+					break
 				}
 			}
 		}
@@ -253,15 +241,12 @@ func (p *Processor) Close(ctx context.Context) error {
 	return err
 }
 
-func subscribe(
+func (p *Processor) subscribe(
 	ctx context.Context,
-	links *links,
-	maxConcurrency int,
-	shouldAutoComplete bool,
-	handleMessage func(message *ReceivedMessage) error,
+	handleMessage func(message *models.ReceivedMessage) error,
 	notifyError func(err error)) bool {
 
-	_, receiver, mgmt, linkRevision, err := links.Get(ctx)
+	_, receiver, _, _, err := p.links.Get(ctx)
 
 	if err != nil {
 		notifyError(err)
@@ -276,10 +261,16 @@ func subscribe(
 
 	activeCallbacksWg := &sync.WaitGroup{}
 	notifyErrorAsync := wrapNotifyError(notifyError, activeCallbacksWg)
-	maxCh := make(chan bool, maxConcurrency)
+	maxCh := make(chan bool, p.config.MaxConcurrentCalls)
 
 	for {
 		message, err := receiver.Receive(ctx)
+
+		if err != nil {
+			// is this error fatal or a retryable error?
+			// if it's retryable let's keep the link
+			// if it's not, exit out and recreate.
+		}
 
 		maxCh <- true
 
@@ -318,7 +309,7 @@ func subscribe(
 	}
 }
 
-func handleSingleMessage(handleMessage func(message *ReceivedMessage) error, notifyErrorAsync func(err error), shouldAutoComplete bool, settler settler, message *amqp.Message) {
+func handleSingleMessage(handleMessage func(message *models.ReceivedMessage) error, notifyErrorAsync func(err error), shouldAutoComplete bool, settler messageSettler, message *amqp.Message) {
 	err := handleMessage(convertToReceivedMessage(legacyMessage))
 
 	if err != nil {
@@ -340,37 +331,6 @@ func handleSingleMessage(handleMessage func(message *ReceivedMessage) error, not
 			notifyErrorAsync(settleErr)
 		}
 	}
-}
-
-//
-// settlement methods
-// TODO: in other processor implementations this is implemented in the argument for the processMessage
-// callback. You need some sort of association or else you have to track message <-> receiver mappings.
-//
-
-// CompleteMessage completes a message, deleting it from the queue or subscription.
-func (p *Processor) CompleteMessage(ctx context.Context, message *ReceivedMessage) error {
-	return message.legacyMessage.Complete(ctx)
-}
-
-// DeadLetterMessage settles a message by moving it to the dead letter queue for a
-// queue or subscription.
-func (p *Processor) DeadLetterMessage(ctx context.Context, message *ReceivedMessage) error {
-	// TODO: expand to let them set the reason and description.
-	return message.legacyMessage.DeadLetter(ctx, nil)
-}
-
-// AbandonMessage will cause a message to be returned to the queue or subscription.
-// This will increment its delivery count, and potentially cause it to be dead lettered
-// depending on your queue or subscription's configuration.
-func (p *Processor) AbandonMessage(ctx context.Context, message *ReceivedMessage) error {
-	return message.legacyMessage.Abandon(ctx)
-}
-
-// DeferMessage will cause a message to be deferred.
-// Messages that are deferred by can be retrieved using `Receiver.ReceiveDeferredMessages()`.
-func (p *Processor) DeferMessage(ctx context.Context, message *ReceivedMessage) error {
-	return message.legacyMessage.Defer(ctx)
 }
 
 func wrapNotifyError(fn func(err error), wg *sync.WaitGroup) func(err error) {

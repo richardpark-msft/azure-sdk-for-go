@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-package azservicebus
+package amqpsb
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/spans"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/models"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
 )
@@ -32,6 +33,21 @@ const (
 	errorTimeout            amqp.ErrorCondition = "com.microsoft:timeout"
 	errorOperationCancelled amqp.ErrorCondition = "com.microsoft:operation-cancelled"
 	errorContainerClose     amqp.ErrorCondition = "com.microsoft:container-close"
+)
+
+type Disposition struct {
+	Status                DispositionStatus
+	LockTokens            []*uuid.UUID
+	DeadLetterReason      *string
+	DeadLetterDescription *string
+}
+
+type DispositionStatus string
+
+const (
+	CompletedDisposition DispositionStatus = "completed"
+	AbandonedDisposition DispositionStatus = "abandoned"
+	SuspendedDisposition DispositionStatus = "suspended"
 )
 
 type (
@@ -212,14 +228,14 @@ func isAMQPTransientError(ctx context.Context, err error) bool {
 	return false
 }
 
-func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, sequenceNumbers ...int64) ([]*amqp.Message, error) {
+func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode internal.ReceiveMode, sequenceNumbers ...int64) ([]*amqp.Message, error) {
 	ctx, span := spans.ForReceiver(ctx, string(spanNameDefer), mc.managementPath, mc.ns.GetHostname())
 	defer span.End()
 
 	const messagesField, messageField = "messages", "message"
 
 	backwardsMode := uint32(0)
-	if mode == PeekLock {
+	if mode == internal.PeekLock {
 		backwardsMode = 1
 	}
 
@@ -410,24 +426,12 @@ func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64,
 
 // RenewLocks renews the locks in a single 'com.microsoft:renew-lock' operation.
 // NOTE: this function assumes all the messages received on the same link.
-func (mc *mgmtClient) RenewLocks(ctx context.Context, messages ...*ReceivedMessage) (err error) {
+func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) (err error) {
 	ctx, span := spans.StartConsumerSpanFromContext(ctx, "sb.RenewLocks")
 	defer span.End()
 
-	if len(messages) == 0 {
+	if len(lockTokens) == 0 {
 		return nil
-	}
-
-	var linkName string = messages[0].linkName
-
-	lockTokens := make([]amqp.UUID, 0, len(messages))
-	for _, m := range messages {
-		if m.LockToken == nil {
-			return fmt.Errorf("failed: message %s has nil lock token, cannot renew lock", m.ID)
-		}
-
-		amqpLockToken := amqp.UUID(*m.LockToken)
-		lockTokens = append(lockTokens, amqpLockToken)
 	}
 
 	renewRequestMsg := &amqp.Message{
@@ -458,7 +462,10 @@ func (mc *mgmtClient) RenewLocks(ctx context.Context, messages ...*ReceivedMessa
 	return nil
 }
 
-func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID, state disposition) error {
+// SendDisposition allows you settle a message using the management link, rather than via your
+// *amqp.Receiver. Use this if the receiver has been closed/lost or if the message isn't associated
+// with a link (ex: deferred messages).
+func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID, state Disposition) error {
 	ctx, span := spans.StartConsumerSpanFromContext(ctx, "sb.rpcClient.SendDisposition")
 	defer span.End()
 
@@ -499,9 +506,9 @@ func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID,
 	return nil
 }
 
-// ScheduleAt will send a batch of messages to a Queue, schedule them to be enqueued, and return the sequence numbers
+// ScheduleMessages will send a batch of messages to a Queue, schedule them to be enqueued, and return the sequence numbers
 // that can be used to cancel each message.
-func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, messages ...*Message) ([]int64, error) {
+func (mc *mgmtClient) ScheduleMessages(ctx context.Context, enqueueTime time.Time, messages ...*models.Message) ([]int64, error) {
 	ctx, span := spans.StartConsumerSpanFromContext(ctx, string(spanNameScheduleMessage))
 	defer span.End()
 
@@ -510,8 +517,10 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 	}
 
 	transformed := make([]interface{}, 0, len(messages))
+	enqueueTimeAsUTC := enqueueTime.UTC()
+
 	for i := range messages {
-		enqueueTimeAsUTC := enqueueTime.UTC()
+		// TODO: don't like that we're modifying the underlying message here
 		messages[i].ScheduledEnqueueTime = &enqueueTimeAsUTC
 
 		if messages[i].ID == "" {
@@ -522,7 +531,7 @@ func (mc *mgmtClient) ScheduleAt(ctx context.Context, enqueueTime time.Time, mes
 			messages[i].ID = id.String()
 		}
 
-		rawAmqp, err := messages[i].toAMQPMessage()
+		rawAmqp, err := messages[i].ToAMQPMessage()
 		if err != nil {
 			return nil, err
 		}

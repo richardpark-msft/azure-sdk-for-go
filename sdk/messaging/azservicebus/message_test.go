@@ -6,21 +6,22 @@ package azservicebus
 import (
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/models"
 	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMessageUnitTest(t *testing.T) {
 	t.Run("toAMQPMessage", func(t *testing.T) {
-		message := &Message{}
+		message := &models.Message{}
 
 		// basic thing - it's totally fine to send a message nothing in it.
-		amqpMessage, err := message.toAMQPMessage()
+		amqpMessage, err := message.ToAMQPMessage()
 		require.NoError(t, err)
 		require.Empty(t, amqpMessage.Annotations)
 		require.NotEmpty(t, amqpMessage.Properties.MessageID, "MessageID is (currently) automatically filled out if you don't specify one")
 
-		message = &Message{
+		message = &models.Message{
 			ID:                      "message id",
 			Body:                    []byte("the body"),
 			PartitionKey:            to.StringPtr("partition key"),
@@ -28,7 +29,7 @@ func TestMessageUnitTest(t *testing.T) {
 			SessionID:               to.StringPtr("session id"),
 		}
 
-		amqpMessage, err = message.toAMQPMessage()
+		amqpMessage, err = message.ToAMQPMessage()
 		require.NoError(t, err)
 
 		require.EqualValues(t, "message id", amqpMessage.Properties.MessageID)

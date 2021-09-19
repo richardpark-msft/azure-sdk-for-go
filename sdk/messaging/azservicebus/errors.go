@@ -32,8 +32,4 @@ const (
 	ErrorPreconditionFailed    MessageErrorCondition = "amqp:precondition-failed"
 	ErrorResourceDeleted       MessageErrorCondition = "amqp:resource-deleted"
 	ErrorIllegalState          MessageErrorCondition = "amqp:illegal-state"
-
-	completedDisposition dispositionStatus = "completed"
-	abandonedDisposition dispositionStatus = "abandoned"
-	suspendedDisposition dispositionStatus = "suspended"
 )

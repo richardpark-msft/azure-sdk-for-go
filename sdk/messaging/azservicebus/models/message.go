@@ -1,13 +1,12 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-package azservicebus
+package models
 
 import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/azure-amqp-common-go/v3/uuid"
 	"github.com/Azure/go-amqp"
 )
 
@@ -18,7 +17,7 @@ type (
 
 		LockToken              *amqp.UUID
 		DeliveryCount          uint32
-		LockedUntil            *time.Time `mapstructure:"x-opt-locked-until"`
+		LockedUntil            *time.Time // `mapstructure:"x-opt-locked-until"`
 		SequenceNumber         *int64     // :"x-opt-sequence-number"`
 		EnqueuedSequenceNumber *int64     // :"x-opt-enqueue-sequence-number"`
 		EnqueuedTime           *time.Time // :"x-opt-enqueued-time"`
@@ -27,14 +26,16 @@ type (
 		// available in the raw AMQP message, but not exported by default
 		// GroupSequence  *uint32
 
-		// internal bookkeeping
-		rawAMQPMessage *amqp.Message
+		// these are internal attributes and will no longer be exported
+		// after we merge jhendrix's refactor to move the settlement
+		// methods from the message to the receiver.
+		RawAMQPMessage *amqp.Message
 
 		// the actual AMQP link ID this message was received on.
-		linkName string
+		LinkName string
 
 		// the 'revision' of the link we received on (ie, if it was recovered it won't match)
-		linkRevision uint64
+		LinkRevision uint64
 	}
 
 	// Message is a SendableMessage which can be sent using a Client.NewSender().
@@ -67,20 +68,6 @@ type (
 
 		Annotations map[string]interface{} `mapstructure:"-"`
 	}
-
-	// mapStructureTag struct {
-	// 	Name         string
-	// 	PersistEmpty bool
-	// }
-
-	dispositionStatus string
-
-	disposition struct {
-		Status                dispositionStatus
-		LockTokens            []*uuid.UUID
-		DeadLetterReason      *string
-		DeadLetterDescription *string
-	}
 )
 
 const (
@@ -100,11 +87,11 @@ func (m *Message) GetKeyValues() map[string]interface{} {
 	return m.ApplicationProperties
 }
 
-func (m *Message) messageType() string {
+func (m *Message) MessageType() string {
 	return "Message"
 }
 
-func (m *Message) toAMQPMessage() (*amqp.Message, error) {
+func (m *Message) ToAMQPMessage() (*amqp.Message, error) {
 	amqpMsg := amqp.NewMessage(m.Body)
 
 	if m.TimeToLive != nil {
@@ -183,7 +170,7 @@ func newReceivedMessage(body []byte, amqpMsg *amqp.Message) (*ReceivedMessage, e
 		Message: Message{
 			Body: body,
 		},
-		rawAMQPMessage: amqpMsg,
+		RawAMQPMessage: amqpMsg,
 	}
 
 	if amqpMsg.Properties != nil {

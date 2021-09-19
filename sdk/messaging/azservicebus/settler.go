@@ -4,18 +4,20 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpsb"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/models"
 	"github.com/Azure/go-amqp"
 	"github.com/Azure/go-autorest/autorest/to"
 )
 
 var errReceiveAndDeleteReceiver = errors.New("messages that are received in receiveAndDelete mode are not settlable")
 
-type settler struct {
-	links *links
+type messageSettler struct {
+	links *amqpsb.Links
 }
 
 // CompleteMessage completes a message, deleting it from the queue or subscription.
-func (s *settler) CompleteMessage(ctx context.Context, message *ReceivedMessage) error {
+func (s *messageSettler) CompleteMessage(ctx context.Context, message *models.ReceivedMessage) error {
 	if s == nil {
 		return errReceiveAndDeleteReceiver
 	}
@@ -27,17 +29,17 @@ func (s *settler) CompleteMessage(ctx context.Context, message *ReceivedMessage)
 	}
 
 	// complete
-	if message.linkRevision != linkRevision {
-		return mgmt.SendDisposition(ctx, message.LockToken, disposition{Status: completedDisposition})
+	if message.LinkRevision != linkRevision {
+		return mgmt.SendDisposition(ctx, message.LockToken, amqpsb.Disposition{Status: amqpsb.CompletedDisposition})
 	}
 
-	return message.rawAMQPMessage.Accept(ctx)
+	return message.RawAMQPMessage.Accept(ctx)
 }
 
 // AbandonMessage will cause a message to be returned to the queue or subscription.
 // This will increment its delivery count, and potentially cause it to be dead lettered
 // depending on your queue or subscription's configuration.
-func (s *settler) AbandonMessage(ctx context.Context, links *links, message *ReceivedMessage) error {
+func (s *messageSettler) AbandonMessage(ctx context.Context, links *amqpsb.Links, message *models.ReceivedMessage) error {
 	if s == nil {
 		return errReceiveAndDeleteReceiver
 	}
@@ -48,20 +50,20 @@ func (s *settler) AbandonMessage(ctx context.Context, links *links, message *Rec
 		return err
 	}
 
-	if linkRevision != message.linkRevision {
+	if linkRevision != message.LinkRevision {
 		// abandon
-		d := disposition{
-			Status: abandonedDisposition,
+		d := amqpsb.Disposition{
+			Status: amqpsb.AbandonedDisposition,
 		}
 		return mgmt.SendDisposition(ctx, message.LockToken, d)
 	}
 
-	return message.rawAMQPMessage.Modify(ctx, false, false, nil)
+	return message.RawAMQPMessage.Modify(ctx, false, false, nil)
 }
 
 // DeferMessage will cause a message to be deferred. Deferred messages
 // can be received using `Receiver.ReceiveDeferredMessages`.
-func (s *settler) DeferMessage(ctx context.Context, links *links, message *ReceivedMessage) error {
+func (s *messageSettler) DeferMessage(ctx context.Context, links *amqpsb.Links, message *models.ReceivedMessage) error {
 	if s == nil {
 		return errReceiveAndDeleteReceiver
 	}
@@ -75,7 +77,7 @@ func (s *settler) DeferMessage(ctx context.Context, links *links, message *Recei
 		return err
 	}
 
-	return message.rawAMQPMessage.Modify(ctx, true, true, nil)
+	return message.RawAMQPMessage.Modify(ctx, true, true, nil)
 }
 
 type DeadLetterOptions struct {
@@ -110,7 +112,7 @@ func DeadLetterWithPropertiesToModify(propertiesToModify map[string]interface{})
 // DeadLetterMessage settles a message by moving it to the dead letter queue for a
 // queue or subscription. To receive these messages create a receiver with `Client.NewReceiver()`
 // using the `ReceiverWithSubQueue()` option.
-func (s *settler) DeadLetterMessage(ctx context.Context, message *ReceivedMessage, options ...DeadLetterOption) error {
+func (s *messageSettler) DeadLetterMessage(ctx context.Context, message *models.ReceivedMessage, options ...DeadLetterOption) error {
 	if s == nil {
 		return errReceiveAndDeleteReceiver
 	}
@@ -129,9 +131,9 @@ func (s *settler) DeadLetterMessage(ctx context.Context, message *ReceivedMessag
 		return err
 	}
 
-	if linkRevision != message.linkRevision {
-		d := disposition{
-			Status:                suspendedDisposition,
+	if linkRevision != message.LinkRevision {
+		d := amqpsb.Disposition{
+			Status:                amqpsb.SuspendedDisposition,
 			DeadLetterDescription: to.StringPtr(err.Error()),
 			DeadLetterReason:      to.StringPtr("amqp:error"),
 		}
@@ -154,5 +156,5 @@ func (s *settler) DeadLetterMessage(ctx context.Context, message *ReceivedMessag
 		Info:      info,
 	}
 
-	return message.rawAMQPMessage.Reject(ctx, &amqpErr)
+	return message.RawAMQPMessage.Reject(ctx, &amqpErr)
 }
