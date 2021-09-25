@@ -26,6 +26,11 @@ type processorConfig struct {
 	ShouldAutoComplete bool
 	MaxConcurrentCalls int
 
+	// MaxLockRenewalDuration controls the maximum length of
+	// time that  a lock will be renewed. Set to zero to disable.
+	// Default: 5 minutes
+	MaxLockRenewalDuration time.Duration
+
 	RetryOptions struct {
 		Times int
 		Delay time.Duration
@@ -125,12 +130,23 @@ func ProcessorWithMaxConcurrentCalls(maxConcurrentCalls int) ProcessorOption {
 	}
 }
 
+// ProcessorWithMaxLockRenewalDuration controls the maximum length of
+// time that a lock will be renewed. Set to zero to disable.
+// Default: 5 minutes
+func ProcessorWithMaxLockRenewalDuration(maxRenewDuration time.Duration) ProcessorOption {
+	return func(processor *Processor) error {
+		processor.config.MaxLockRenewalDuration = maxRenewDuration
+		return nil
+	}
+}
+
 func newProcessor(ns internal.NamespaceWithNewAMQPLinks, options ...ProcessorOption) (*Processor, error) {
 	processor := &Processor{
 		config: processorConfig{
-			ReceiveMode:        PeekLock,
-			ShouldAutoComplete: true,
-			MaxConcurrentCalls: 1,
+			ReceiveMode:            PeekLock,
+			ShouldAutoComplete:     true,
+			MaxConcurrentCalls:     1,
+			MaxLockRenewalDuration: time.Minute * 5,
 			RetryOptions: struct {
 				Times int
 				Delay time.Duration

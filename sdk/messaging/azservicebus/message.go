@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/go-amqp"
 	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/devigned/tab"
@@ -72,7 +73,7 @@ const (
 	partitionKeyAnnotation           = "x-opt-partition-key"
 	viaPartitionKeyAnnotation        = "x-opt-via-partition-key"
 	scheduledEnqueuedTimeAnnotation  = "x-opt-scheduled-enqueue-time"
-	lockedUntilAnnotation            = "x-opt-locked-until"
+	lockedUntilAnnotation            = internal.LockedUntilAnnotation
 	sequenceNumberAnnotation         = "x-opt-sequence-number"
 	enqueuedTimeAnnotation           = "x-opt-enqueued-time"
 	deadLetterSourceAnnotation       = "x-opt-deadletter-source"
@@ -195,9 +196,8 @@ func newReceivedMessage(ctxForLogging context.Context, amqpMsg *amqp.Message) *R
 	}
 
 	if amqpMsg.Properties != nil {
-		if id, ok := amqpMsg.Properties.MessageID.(string); ok {
-			msg.ID = id
-		}
+		msg.ID = internal.GetMessageID(amqpMsg)
+
 		msg.SessionID = &amqpMsg.Properties.GroupID
 		//msg.GroupSequence = &amqpMsg.Properties.GroupSequence
 
@@ -285,7 +285,7 @@ func newReceivedMessage(ctxForLogging context.Context, amqpMsg *amqp.Message) *R
 	}
 
 	if amqpMsg.DeliveryTag != nil && len(amqpMsg.DeliveryTag) > 0 {
-		lockToken, err := lockTokenFromMessageTag(amqpMsg)
+		lockToken, err := internal.GetLockToken(amqpMsg)
 
 		if err == nil {
 			msg.LockToken = lockToken
@@ -303,32 +303,4 @@ func newReceivedMessage(ctxForLogging context.Context, amqpMsg *amqp.Message) *R
 
 	msg.Format = amqpMsg.Format
 	return msg
-}
-
-func lockTokenFromMessageTag(msg *amqp.Message) (*amqp.UUID, error) {
-	return uuidFromLockTokenBytes(msg.DeliveryTag)
-}
-
-func uuidFromLockTokenBytes(bytes []byte) (*amqp.UUID, error) {
-	if len(bytes) != 16 {
-		return nil, fmt.Errorf("invalid lock token, token was not 16 bytes long")
-	}
-
-	var swapIndex = func(indexOne, indexTwo int, array *[16]byte) {
-		v1 := array[indexOne]
-		array[indexOne] = array[indexTwo]
-		array[indexTwo] = v1
-	}
-
-	// Get lock token from the deliveryTag
-	var lockTokenBytes [16]byte
-	copy(lockTokenBytes[:], bytes[:16])
-	// translate from .net guid byte serialisation format to amqp rfc standard
-	swapIndex(0, 3, &lockTokenBytes)
-	swapIndex(1, 2, &lockTokenBytes)
-	swapIndex(4, 5, &lockTokenBytes)
-	swapIndex(6, 7, &lockTokenBytes)
-	amqpUUID := amqp.UUID(lockTokenBytes)
-
-	return &amqpUUID, nil
 }

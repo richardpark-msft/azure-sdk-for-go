@@ -417,6 +417,9 @@ func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockToken
 	}
 
 	response, err := mc.doRPCWithRetry(ctx, renewRequestMsg, 3, 1*time.Second)
+
+	// TODO: we should get getting the next renewal date here.
+
 	if err != nil {
 		tab.For(ctx).Error(err)
 		return err
