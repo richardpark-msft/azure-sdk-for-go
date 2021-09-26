@@ -60,6 +60,7 @@ const (
 type MgmtClient interface {
 	Close(ctx context.Context) error
 	SendDisposition(ctx context.Context, lockToken *amqp.UUID, state Disposition) error
+	RenewLocks(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) (err error)
 }
 
 func newMgmtClient(ctx context.Context, managementPath string, ns NamespaceForMgmtClient) (MgmtClient, error) {
