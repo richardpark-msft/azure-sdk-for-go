@@ -17,12 +17,14 @@ func TestReceiverSendFiveReceiveFive(t *testing.T) {
 	serviceBusClient, cleanup, queueName := setupLiveTest(t)
 	defer cleanup()
 
+	ctx := context.Background()
+
 	sender, err := serviceBusClient.NewSender(queueName)
 	require.NoError(t, err)
-	defer sender.Close(context.Background())
+	defer sender.Close(ctx)
 
 	for i := 0; i < 5; i++ {
-		err = sender.SendMessage(context.Background(), &Message{
+		err = sender.SendMessage(ctx, &Message{
 			Body: []byte(fmt.Sprintf("[%d]: send five, receive five", i)),
 		})
 		require.NoError(t, err)
@@ -31,19 +33,30 @@ func TestReceiverSendFiveReceiveFive(t *testing.T) {
 	receiver, err := serviceBusClient.NewReceiver(ReceiverWithQueue(queueName))
 	require.NoError(t, err)
 
-	messages, err := receiver.ReceiveMessages(context.Background(), 5)
+	messages, err := receiver.ReceiveMessages(ctx, 5)
 	require.NoError(t, err)
 
 	sort.Sort(receivedMessageSlice(messages))
 
-	require.EqualValues(t, 5, len(messages))
+	require.EqualValues(t, []string{
+		"[0]: send five, receive five",
+		"[1]: send five, receive five",
+		"[2]: send five, receive five",
+		"[3]: send five, receive five",
+		"[4]: send five, receive five",
+	}, getSortedBodies(messages))
+
+	// give a little buffer, we're going to do a renew lock call as well
+	time.Sleep(time.Second)
 
 	for i := 0; i < 5; i++ {
-		require.EqualValues(t,
-			fmt.Sprintf("[%d]: send five, receive five", i),
-			string(messages[i].Body))
+		// renew and since we're at least a second later the times should differ
+		// for our test.
+		newExpirationTime, err := receiver.RenewLock(ctx, messages[i])
+		require.NoError(t, err)
+		require.Less(t, time.Duration(0), newExpirationTime.Sub(*messages[i].LockedUntil))
 
-		require.NoError(t, receiver.CompleteMessage(context.Background(), messages[i]))
+		require.NoError(t, receiver.CompleteMessage(ctx, messages[i]))
 	}
 }
 

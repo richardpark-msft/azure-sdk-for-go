@@ -3,7 +3,7 @@ package internal
 import (
 	"context"
 	"errors"
-	"net"
+	"log"
 	"sync"
 	"time"
 
@@ -12,7 +12,7 @@ import (
 )
 
 // renewLockFunc should match MgmtClient.RenewLocks
-type renewLockFunc func(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) (err error)
+type renewLockFunc func(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) ([]time.Time, error)
 
 type LockRenewer struct {
 	associatedLinkName string
@@ -32,10 +32,6 @@ func NewLockRenewer(associatedLinkName string, renewLockFunc renewLockFunc, noti
 		renewLockFunc:      renewLockFunc,
 		notifyError:        notifyError,
 	}
-}
-
-type RenewableMessage interface {
-	LockToken() string
 }
 
 // Update should be called if there is a link change.
@@ -71,6 +67,9 @@ func (r *LockRenewer) Renew(ctx context.Context, m *amqp.Message) (func(), error
 	ctx, cancel := context.WithCancel(ctx)
 	r.add(lockToken, cancel)
 
+	// it's nice to do one right away just to prove you still own the message
+	// but it's not strictly needed provided we did this close to when the message
+	// actually arrived.
 	if err := r.renew(ctx, lockToken, initialExpirationTime); err != nil {
 		return nil, err
 	}
@@ -95,11 +94,13 @@ func (r *LockRenewer) renew(ctx context.Context, lockToken *amqp.UUID, initialEx
 	// guess at it if we assume we're doing this pretty quickly after
 	// receiving it.
 	maxApproxLockDuration := time.Until(initialExpirationTime)
+	maxApproxLockDuration2 := initialExpirationTime.UTC().Sub(time.Now().UTC())
+
+	log.Printf("maxApproxLockDuration = %d, maxApproxLockDuration2 = %d, in seconds: %d", maxApproxLockDuration, maxApproxLockDuration2, maxApproxLockDuration/time.Second)
 	defer r.remove(lockToken)
 
 	// we'll reset the timer after this so just picking some arbitrary "not going to fire off time"
 	timer := time.NewTimer(time.Hour * 24)
-	defer timer.Stop()
 
 	if err := r.renewLockAndScheduleNext(ctx, lockToken, maxApproxLockDuration, timer); err != nil {
 		return err
@@ -110,6 +111,7 @@ func (r *LockRenewer) renew(ctx context.Context, lockToken *amqp.UUID, initialEx
 		for {
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				break Loop
 			case <-timer.C:
 				if err := r.renewLockAndScheduleNext(ctx, lockToken, maxApproxLockDuration, timer); err != nil {
@@ -135,41 +137,27 @@ func (r *LockRenewer) renewLockAndScheduleNext(ctx context.Context,
 
 	renewLockFunc, associatedLinkName := r.get()
 
-	if err := renewLockFunc(ctx, associatedLinkName, lockToken); err != nil {
-		span.Logger().Error(err)
+	updatedExpirys, err := renewLockFunc(ctx, associatedLinkName, lockToken)
 
-		if isNonRetryableError(err) {
-			// no point in continuing to renew lock. Something else has killed the ability to renew
-			// the message.
-			span.Logger().Fatal("renewlocks had a fatal error")
-			span.End()
-			return err
-		}
+	if err != nil {
+		// no point in continuing to renew lock. Something else has killed the ability to renew
+		// the message.
+		span.Logger().Error(err)
+		return err
 	}
 
 	// calculate the next expiration time - we'll just do it at half the interval
 	// to give us a potential buffer against failure/clock drift.
 
-	// setup the next renewal
-	timer.Reset(maxDuration / 2)
-
-	span.AddAttributes(
-		tab.StringAttribute("next-renewal", time.Now().Add(maxDuration/2).String()),
-	)
-
-	timer.Reset(maxDuration / 2)
-	return nil
-}
-
-func isNonRetryableError(err error) bool {
-	// TODO: after some of the PR merges are done we'll have this in a centralized spot
-	// and this can be deleted
-	switch asType := err.(type) {
-	case *net.OpError:
-		return asType.Temporary() || asType.Timeout()
-	default:
-		// there are some other cases, like if the SB is throttled.
-		// we can handle that more gracefully (and will when I throw this code away)
-		return false
+	// setup the next renewal - fallback to the previous estimated duration
+	// if we don't get the next lock time from the service.
+	// TBH: this shouldn't happen if the request succeeded.
+	if updatedExpirys == nil || len(updatedExpirys) != 1 {
+		r.notifyError(errors.New("no updated expiration dates were in the renewLocks response"))
+		timer.Reset(maxDuration / 2)
+	} else {
+		timer.Reset(time.Until(updatedExpirys[0]) / 2)
 	}
+
+	return nil
 }

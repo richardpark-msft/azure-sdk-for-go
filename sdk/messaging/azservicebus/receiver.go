@@ -309,6 +309,25 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 	}
 }
 
+// RenewLock renews the lock for a specific message, returning the new lock
+// expiration time.
+func (r *Receiver) RenewLock(ctx context.Context, m *ReceivedMessage) (time.Time, error) {
+	_, _, mgmt, _, err := r.links.Get(ctx)
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// TODO: need to add in the receiver link name.
+	updatedTimes, err := mgmt.RenewLocks(ctx, "", m.LockToken)
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return updatedTimes[0], nil
+}
+
 // Close permanently closes the receiver.
 func (r *Receiver) Close(ctx context.Context) error {
 	return r.amqpLinks.Close(ctx, true)

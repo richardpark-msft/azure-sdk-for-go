@@ -3,6 +3,7 @@ package azservicebus
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/stretchr/testify/require"
@@ -11,8 +12,12 @@ import (
 func TestAutoLockRenewer(t *testing.T) {
 	ctx := context.TODO()
 
-	client, cleanup, queueName := setupLiveTest(t)
-	defer cleanup()
+	// client, cleanup, queueName := setupLiveTest(t)
+	//	defer cleanup()
+	client, err := NewClient(WithConnectionString(getConnectionString(t)))
+	require.NoError(t, err)
+
+	queueName := "samples"
 
 	sender, err := client.NewSender(queueName)
 	require.NoError(t, err)
@@ -44,4 +49,12 @@ func TestAutoLockRenewer(t *testing.T) {
 	require.NoError(t, err)
 
 	defer cancel()
+
+	time.Sleep(5 * time.Minute)
 }
+
+// func TestAutoLocKRenewerUnitTests(t *testing.T) {
+// 	t.Run("respects expiration date", func(t *testing.T) {
+// 		&internal.LockRenewer{}
+// 	})
+// }

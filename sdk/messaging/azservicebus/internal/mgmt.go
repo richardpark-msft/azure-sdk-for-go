@@ -60,7 +60,7 @@ const (
 type MgmtClient interface {
 	Close(ctx context.Context) error
 	SendDisposition(ctx context.Context, lockToken *amqp.UUID, state Disposition) error
-	RenewLocks(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) (err error)
+	RenewLocks(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) ([]time.Time, error)
 }
 
 func newMgmtClient(ctx context.Context, managementPath string, ns NamespaceForMgmtClient) (MgmtClient, error) {
@@ -394,14 +394,24 @@ func (mc *mgmtClient) GetNextPage(ctx context.Context, fromSequenceNumber int64,
 	return transformedMessages, nil
 }
 
+func transformToUUIDArray(uuids []*amqp.UUID) []amqp.UUID {
+	var ids []amqp.UUID
+
+	for _, id := range uuids {
+		ids = append(ids, *id)
+	}
+
+	return ids
+}
+
 // RenewLocks renews the locks in a single 'com.microsoft:renew-lock' operation.
 // NOTE: this function assumes all the messages received on the same link.
-func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) (err error) {
+func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) ([]time.Time, error) {
 	ctx, span := startConsumerSpanFromContext(ctx, spanNameRenewLock)
 	defer span.End()
 
 	if len(lockTokens) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	renewRequestMsg := &amqp.Message{
@@ -409,7 +419,7 @@ func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockToken
 			"operation": "com.microsoft:renew-lock",
 		},
 		Value: map[string]interface{}{
-			"lock-tokens": lockTokens,
+			"lock-tokens": transformToUUIDArray(lockTokens),
 		},
 	}
 
@@ -420,19 +430,32 @@ func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockToken
 	response, err := mc.doRPCWithRetry(ctx, renewRequestMsg, 3, 1*time.Second)
 
 	// TODO: we should get getting the next renewal date here.
-
 	if err != nil {
 		tab.For(ctx).Error(err)
-		return err
+		return nil, err
 	}
 
 	if response.Code != 200 {
 		err := fmt.Errorf("error renewing locks: %v", response.Description)
 		tab.For(ctx).Error(err)
-		return err
+		return nil, err
 	}
 
-	return nil
+	value, ok := response.Message.Value.(map[string]interface{})
+
+	if !ok {
+		tab.For(ctx).Info("Can't deserialize response for new expiration times")
+		return nil, nil
+	}
+
+	expirations, ok := value["expirations"].([]time.Time)
+
+	if !ok {
+		tab.For(ctx).Info("Can't deserialize response for new expiration times")
+		return nil, nil
+	}
+
+	return expirations, nil
 }
 
 // SendDisposition allows you settle a message using the management link, rather than via your
