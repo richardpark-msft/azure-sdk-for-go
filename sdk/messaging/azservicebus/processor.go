@@ -266,6 +266,25 @@ func (p *Processor) Start(handleMessage func(message *ReceivedMessage) error, ha
 	return nil
 }
 
+// RenewLock renews the lock for a specific message, returning the new lock
+// expiration time. If lock renewal is enabled this is does automatically.
+func (p *Processor) RenewLock(ctx context.Context, msg *ReceivedMessage) (time.Time, error) {
+	_, _, mgmt, _, err := p.links.Get(ctx)
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	// TODO: need to add in the receiver link name.
+	updatedTimes, err := mgmt.RenewLocks(ctx, "", msg.LockToken)
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	return updatedTimes[0], nil
+}
+
 // Close will wait for any pending callbacks to complete.
 func (p *Processor) Close(ctx context.Context) error {
 	p.mu.Lock()

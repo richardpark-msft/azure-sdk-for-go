@@ -77,6 +77,49 @@ func TestProcessorReceiveWithDefaults(t *testing.T) {
 	require.NoError(t, processor.Close(ctx))
 }
 
+func TestProcessorRenewLocks(t *testing.T) {
+	serviceBusClient, cleanup, queueName := setupLiveTest(t)
+	defer cleanup()
+
+	sender, err := serviceBusClient.NewSender(queueName)
+	require.NoError(t, err)
+
+	ctx := context.TODO()
+
+	err = sender.SendMessage(ctx, &Message{
+		Body: []byte("hello world"),
+	})
+	require.NoError(t, err)
+
+	processor, err := serviceBusClient.NewProcessor(
+		ProcessorWithMaxLockRenewalDuration(0),
+		ProcessorWithQueue(queueName))
+	require.NoError(t, err)
+
+	ch := make(chan struct{})
+
+	processor.Start(func(message *ReceivedMessage) error {
+		time.Sleep(time.Second) // eat up a little chunk of the lock time
+
+		newExpirationTime, err := processor.RenewLock(ctx, message)
+		require.NoError(t, err)
+		require.Less(t, time.Duration(0), newExpirationTime.Sub(*message.LockedUntil))
+
+		close(ch)
+
+		return nil
+	}, func(err error) {
+		require.NoError(t, err)
+	})
+
+	select {
+	case <-time.After(time.Minute):
+		require.Fail(t, "No messages received in time limit!")
+	case <-ch:
+		require.NoError(t, processor.Close(ctx))
+	}
+}
+
 func TestProcessorReceiveWith100MessagesWithMaxConcurrency(t *testing.T) {
 	serviceBusClient, cleanup, queueName := setupLiveTest(t)
 	defer cleanup()
