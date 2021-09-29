@@ -42,6 +42,14 @@ type AMQPSender interface {
 	MaxMessageSize() uint64
 }
 
+// RecoverableSender is implemented by *RecoverableAMQPSender
+// NOTE: It's almost an AMQPSender but MaxMessageSize requires an
+// initialized link (and could fail if it can't obtain one)
+type RecoverableSender interface {
+	Send(ctx context.Context, msg *amqp.Message) error
+	MaxMessageSize(ctx context.Context) (uint64, error)
+}
+
 // AMQPSenderCloser is implemented by *amqp.Sender
 type AMQPSenderCloser interface {
 	AMQPSender
@@ -131,13 +139,12 @@ func (s *RecoverableAMQPSender) Send(ctx context.Context, msg *amqp.Message) err
 	return s.Links.RecoverIfNeeded(ctx, err)
 }
 
-func (s *RecoverableAMQPSender) MaxMessageSize() uint64 {
-	sender, _, _, _, err := s.Links.Get(context.Background())
+func (s *RecoverableAMQPSender) MaxMessageSize(ctx context.Context) (uint64, error) {
+	sender, _, _, _, err := s.Links.Get(ctx)
 
 	if err != nil {
-		// TODO: what to do here.
-		return 0
+		return 0, s.Links.RecoverIfNeeded(ctx, err)
 	}
 
-	return sender.MaxMessageSize()
+	return sender.MaxMessageSize(), nil
 }

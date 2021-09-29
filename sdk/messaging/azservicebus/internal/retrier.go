@@ -46,9 +46,8 @@ type backoffRetrier struct {
 	tries int
 }
 
-// NewBackoffRetrier creates a retrier that allows for configurable
-// min/max times, jitter and maximum retries.
-func NewBackoffRetrier(params struct {
+// BackoffRetrierParams are parameters for NewBackoffRetrier.
+type BackoffRetrierParams struct {
 	// MaxRetries is the maximum number of tries (after the first attempt)
 	// that are allowed.
 	MaxRetries int
@@ -58,7 +57,11 @@ func NewBackoffRetrier(params struct {
 	Jitter bool
 	// Min and Max are the minimum and maximum values of the counter
 	Min, Max time.Duration
-}) Retrier {
+}
+
+// NewBackoffRetrier creates a retrier that allows for configurable
+// min/max times, jitter and maximum retries.
+func NewBackoffRetrier(params BackoffRetrierParams) Retrier {
 	return &backoffRetrier{
 		backoff: backoff.Backoff{
 			Factor: params.Factor,

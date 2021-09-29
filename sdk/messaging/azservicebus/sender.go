@@ -9,7 +9,6 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/go-amqp"
-	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/devigned/tab"
 )
 
@@ -21,7 +20,7 @@ type (
 	Sender struct {
 		queueOrTopic string
 		links        internal.AMQPLinks
-		inner        internal.AMQPSender
+		inner        internal.RecoverableSender
 	}
 
 	// SendableMessage are sendable using Sender.SendMessage.
@@ -38,7 +37,7 @@ const (
 )
 
 type messageBatchOptions struct {
-	maxSizeInBytes *int
+	maxSizeInBytes *uint64
 }
 
 // MessageBatchOption is an option for configuring batch creation in
@@ -47,7 +46,7 @@ type MessageBatchOption func(options *messageBatchOptions) error
 
 // MessageBatchWithMaxSize overrides the max size (in bytes) for a batch.
 // By default NewMessageBatch will use the max message size provided by the service.
-func MessageBatchWithMaxSize(maxSizeInBytes int) func(options *messageBatchOptions) error {
+func MessageBatchWithMaxSize(maxSizeInBytes uint64) func(options *messageBatchOptions) error {
 	return func(options *messageBatchOptions) error {
 		options.maxSizeInBytes = &maxSizeInBytes
 		return nil
@@ -58,8 +57,14 @@ func MessageBatchWithMaxSize(maxSizeInBytes int) func(options *messageBatchOptio
 // messages. Sending a batch of messages is more efficient than sending the
 // messages one at a time.
 func (s *Sender) NewMessageBatch(ctx context.Context, options ...MessageBatchOption) (*MessageBatch, error) {
+	maxMessageSize, err := s.inner.MaxMessageSize(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
 	opts := &messageBatchOptions{
-		maxSizeInBytes: to.IntPtr(int(s.inner.MaxMessageSize())),
+		maxSizeInBytes: &maxMessageSize,
 	}
 
 	for _, opt := range options {
@@ -78,7 +83,7 @@ func (s *Sender) SendMessage(ctx context.Context, message SendableMessage) error
 	ctx, span := s.startProducerSpanFromContext(ctx, fmt.Sprintf(spanNameSendMessageFmt, message.messageType()))
 	defer span.End()
 
-	return s.inner.Send(ctx, message.ToAMQPMessage())
+	return s.inner.Send(ctx, message.toAMQPMessage())
 }
 
 // Close permanently closes the Sender.
@@ -100,11 +105,7 @@ func newSender(ns *internal.Namespace, queueOrTopic string) (*Sender, error) {
 		queueOrTopic: queueOrTopic,
 	}
 
-	links, err := ns.NewAMQPLinks(queueOrTopic, sender.createSenderLink)
-
-	if err != nil {
-		return nil, err
-	}
+	links := ns.NewAMQPLinks(queueOrTopic, sender.createSenderLink)
 
 	sender.inner = &internal.RecoverableAMQPSender{Links: links}
 	sender.links = links

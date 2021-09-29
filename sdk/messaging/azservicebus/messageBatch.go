@@ -13,7 +13,7 @@ type (
 	MessageBatch struct {
 		marshaledMessages [][]byte
 		batchEnvelope     *amqp.Message
-		maxBytes          int
+		maxBytes          uint64
 		size              int
 	}
 )
@@ -26,7 +26,7 @@ const (
 )
 
 // NewMessageBatch builds a new message batch with a default standard max message size
-func newMessageBatch(maxBytes int) *MessageBatch {
+func newMessageBatch(maxBytes uint64) *MessageBatch {
 	mb := &MessageBatch{
 		maxBytes: maxBytes,
 	}

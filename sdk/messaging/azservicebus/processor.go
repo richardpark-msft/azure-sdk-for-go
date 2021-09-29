@@ -13,7 +13,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
-	"github.com/jpillora/backoff"
 )
 
 type processorConfig struct {
@@ -26,10 +25,7 @@ type processorConfig struct {
 	ShouldAutoComplete bool
 	MaxConcurrentCalls int
 
-	RetryOptions struct {
-		Times int
-		Delay time.Duration
-	}
+	backoffParams internal.BackoffRetrierParams
 }
 
 // Processor is a push-based receiver for Service Bus.
@@ -122,13 +118,12 @@ func newProcessor(ns internal.NamespaceWithNewAMQPLinks, options ...ProcessorOpt
 			ReceiveMode:        PeekLock,
 			ShouldAutoComplete: true,
 			MaxConcurrentCalls: 1,
-			RetryOptions: struct {
-				Times int
-				Delay time.Duration
-			}{
-				// TODO: allow these to be configured.
-				Times: 10,
-				Delay: 5 * time.Second,
+			// TODO: make this configurable
+			backoffParams: internal.BackoffRetrierParams{
+				Factor:     2,
+				Min:        1,
+				Max:        time.Minute,
+				MaxRetries: 5,
 			},
 		},
 
@@ -202,21 +197,14 @@ func (p *Processor) Start(handleMessage func(message *ReceivedMessage) error, ha
 		}()
 
 		for { // infinity loop
-			retrier := internal.BackoffRetrier{
-				Backoff: backoff.Backoff{
-					Factor: 2,
-					Min:    p.config.RetryOptions.Delay,
-					Max:    p.config.RetryOptions.Delay * time.Duration(p.config.RetryOptions.Times),
-				},
-				MaxRetries: p.config.RetryOptions.Times,
-			}
+			retrier := internal.NewBackoffRetrier(p.config.backoffParams)
 
 			// notify the user but there's no reason to restart because this failure must be
 			// an internal error.
 			// we retry infinitely, but do it in the pattern they specify via their retryOptions for each "round" of retries.
 			for retrier.Try(ctx) {
 				receiver := &internal.RecoverableAMQPReceiver{
-					Links: p.links,
+					Links: p.amqpLinks,
 				}
 
 				if err := p.subscribe(ctx, receiver, handleMessage, handleError); err != nil {
@@ -276,7 +264,7 @@ func (p *Processor) subscribe(
 	defer p.wg.Done()
 
 	for {
-		retryPolicy := internal.DefaultRetryPolicy.Copy()
+		retryPolicy := internal.NewBackoffRetrier(p.config.backoffParams)
 
 		var err error
 		var amqpMessage *amqp.Message
