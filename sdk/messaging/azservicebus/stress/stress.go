@@ -13,6 +13,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
+	"github.com/devigned/tab"
 	"github.com/joho/godotenv"
 	"github.com/microsoft/ApplicationInsights-Go/appinsights"
 )
@@ -46,6 +48,8 @@ func runBasicSendAndReceiveTest() {
 	if cs == "" || aiKey == "" {
 		log.Fatalf("APPINSIGHTS_INSTRUMENTATIONKEY and SERVICEBUS_CONNECTION_STRING must be defined in the environment")
 	}
+
+	tab.Register(&utils.StderrTracer{})
 
 	config := appinsights.NewTelemetryConfiguration(aiKey)
 

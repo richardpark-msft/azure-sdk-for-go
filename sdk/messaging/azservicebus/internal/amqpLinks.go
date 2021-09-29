@@ -30,6 +30,7 @@ type AMQPLinks interface {
 
 	// RecoverIfNeeded will check if an error requires recovery, and will recover
 	// the link or, possibly, the connection.
+	// NOTE: RecoverIfNeeded _always_ returns the original error passed to it.
 	RecoverIfNeeded(ctxForLogging context.Context, err error) error
 
 	// Close will close the the link.
@@ -163,7 +164,7 @@ func (links *amqpLinks) RecoverIfNeeded(ctxForLogging context.Context, origErr e
 		return origErr
 	}
 
-	if isConnectionDead(origErr) {
+	if isConnectionDead(ctxForLogging, origErr) {
 		span.Logger().Info("Connection is dead, recovering")
 
 		links.mu.RLock()

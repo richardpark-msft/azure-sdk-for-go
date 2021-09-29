@@ -6,6 +6,10 @@ package internal
 import (
 	"context"
 	"fmt"
+	"time"
+
+	"github.com/Azure/azure-amqp-common-go/v3/rpc"
+	"github.com/Azure/go-amqp"
 )
 
 type fakeNS struct {
@@ -16,9 +20,17 @@ type fakeNS struct {
 	Session         AMQPSessionCloser
 }
 
-type fakeAMQPSender struct {
-	closed int
-	AMQPSender
+type fakeAMQPReceiver struct {
+	issueCreditParams []uint32
+	issueCreditReturn error
+
+	drainCreditCalls  int
+	drainCreditReturn error
+
+	receiveReturns []struct {
+		Message *amqp.Message
+		Err     error
+	}
 }
 
 type fakeAMQPSession struct {
@@ -31,19 +43,70 @@ type fakeMgmtClient struct {
 	closed int
 }
 
+type fakeRPCLink struct {
+	closed    int
+	closedErr error
+
+	rpcParams  []*amqp.Message
+	rpcReturns []struct {
+		Resp *rpc.Response
+		Err  error
+	}
+}
+
 type FakeAMQPLinks struct {
 	AMQPLinks
 
+	recoverParams []error
+
 	// values to be returned for each `Get` call
 	Revision uint64
-	Receiver AMQPReceiver
-	Sender   AMQPSender
+	Receiver *fakeAMQPReceiver
+	Sender   *fakeAMQPSender
 	Mgmt     MgmtClient
 	Err      error
 }
 
-func (l FakeAMQPLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, error) {
+// links
+
+func (l *FakeAMQPLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, error) {
 	return l.Sender, l.Receiver, l.Mgmt, l.Revision, l.Err
+}
+
+func (l *FakeAMQPLinks) RecoverIfNeeded(ctxForLogging context.Context, err error) error {
+	l.recoverParams = append(l.recoverParams, err)
+	return err
+}
+
+func (l *FakeAMQPLinks) ResetMock() {
+	*l = FakeAMQPLinks{}
+}
+
+// sender
+
+type fakeAMQPSender struct {
+	closed int
+
+	sendParams  []*amqp.Message
+	sendReturns []error
+
+	maxMessageSizeReturn []uint64
+}
+
+func (s *fakeAMQPSender) Send(ctx context.Context, msg *amqp.Message) error {
+	s.sendParams = append(s.sendParams, msg)
+
+	var resp error
+	resp, s.sendReturns = s.sendReturns[0], s.sendReturns[1:]
+
+	return resp
+}
+
+func (s *fakeAMQPSender) MaxMessageSize() uint64 {
+	var resp uint64
+	resp, s.maxMessageSizeReturn = s.maxMessageSizeReturn[0], s.maxMessageSizeReturn[1:]
+
+	return resp
 }
 
 func (s *fakeAMQPSender) Close(ctx context.Context) error {
@@ -51,15 +114,54 @@ func (s *fakeAMQPSender) Close(ctx context.Context) error {
 	return nil
 }
 
+// receiver
+
+func (r *fakeAMQPReceiver) IssueCredit(credit uint32) error {
+	r.issueCreditParams = append(r.issueCreditParams, credit)
+	return r.issueCreditReturn
+}
+
+func (r *fakeAMQPReceiver) DrainCredit(ctx context.Context) error {
+	r.drainCreditCalls++
+	return r.drainCreditReturn
+}
+
+func (r *fakeAMQPReceiver) Receive(ctx context.Context) (*amqp.Message, error) {
+	ret := r.receiveReturns[0]
+	r.receiveReturns = r.receiveReturns[1:]
+	return ret.Message, ret.Err
+}
+
+// session
+
 func (s *fakeAMQPSession) Close(ctx context.Context) error {
 	s.closed++
 	return nil
 }
 
+// mgmt
+
 func (m *fakeMgmtClient) Close(ctx context.Context) error {
 	m.closed++
 	return nil
 }
+
+// rpclink
+
+func (r *fakeRPCLink) Close(ctx context.Context) error {
+	r.closed++
+	return r.closedErr
+}
+
+func (r *fakeRPCLink) RetryableRPC(ctx context.Context, times int, delay time.Duration, msg *amqp.Message) (*rpc.Response, error) {
+	r.rpcParams = append(r.rpcParams, msg)
+	ret := r.rpcReturns[0]
+	r.rpcReturns = r.rpcReturns[1:]
+
+	return ret.Resp, ret.Err
+}
+
+// namespace
 
 func (ns *fakeNS) NegotiateClaim(ctx context.Context, entityPath string) (func() <-chan struct{}, error) {
 	ch := make(chan struct{})

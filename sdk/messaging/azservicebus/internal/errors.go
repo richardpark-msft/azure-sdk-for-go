@@ -4,6 +4,7 @@
 package internal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Azure/azure-amqp-common-go/v3/rpc"
 	"github.com/Azure/go-amqp"
+	"github.com/devigned/tab"
 )
 
 type NonRetriable interface {
@@ -128,11 +130,22 @@ func (e ErrConnectionClosed) Error() string {
 //    TrackingId:<REDACTED>,
 //    SystemTracker:<REDACTED> Topic:<REDACTED>, Timestamp:2021-06-19T23:17:15, Info: map[]
 // }
-func isAmqpInternalError(err error) bool {
+func isAmqpInternalError(ctxForLogging context.Context, err error) bool {
 	var amqpErr *amqp.Error
-	return errors.As(err, &amqpErr) &&
-		amqpErr.Condition == amqp.ErrorInternalError &&
-		strings.HasPrefix("the service was unable to process the request", strings.ToLower(amqpErr.Description))
+	var typeMatch = errors.As(err, &amqpErr) &&
+		amqpErr.Condition == amqp.ErrorInternalError
+
+	if typeMatch {
+		return true
+	}
+
+	if strings.HasPrefix("the service was unable to process the request", strings.ToLower(amqpErr.Description)) {
+		// string matches need to be eradicated
+		tab.For(ctxForLogging).Info(fmt.Sprintf("String match was required for %s, %T. Still recovering.", amqpErr.Description, amqpErr))
+		return true
+	}
+
+	return false
 }
 
 func isPermanentNetError(err error) bool {
@@ -153,9 +166,9 @@ func isLinkDetachedError(err error) bool {
 		strings.Contains(err.Error(), "detach frame link detached")
 }
 
-func isConnectionDead(err error) bool {
+func isConnectionDead(ctxForLogging context.Context, err error) bool {
 	return isPermanentNetError(err) ||
 		//isLinkDetachedError(err) ||
-		isAmqpInternalError(err) ||
+		isAmqpInternalError(ctxForLogging, err) ||
 		isEOF(err)
 }

@@ -254,7 +254,7 @@ func (p *Processor) DeadLetterMessage(ctx context.Context, message *ReceivedMess
 
 func (p *Processor) subscribe(
 	ctx context.Context,
-	receiver internal.AMQPReceiver,
+	receiver internal.RecoverableReceiver,
 	handleMessage func(message *ReceivedMessage) error,
 	notifyError func(err error)) error {
 
@@ -311,7 +311,7 @@ func (p *Processor) subscribe(
 				}
 			}
 
-			if err := receiver.IssueCredit(1); err != nil {
+			if err := receiver.IssueCredit(ctx, 1); err != nil {
 				notifyErrorAsync(fmt.Errorf("failed issuing additional credit, processor will be restarted: %w", err))
 
 				// close the links here and cause the processor for this receiver to restart

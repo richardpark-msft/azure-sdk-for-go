@@ -56,7 +56,7 @@ type Receiver struct {
 
 	lastPeekedSequenceNumber int64
 	amqpLinks                internal.AMQPLinks
-	inner                    internal.AMQPReceiver
+	inner                    internal.RecoverableReceiver
 }
 
 const defaultLinkRxBuffer = 2048
@@ -208,7 +208,7 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 		}
 	}
 
-	if err := r.inner.IssueCredit(uint32(maxMessages)); err != nil {
+	if err := r.inner.IssueCredit(ctx, uint32(maxMessages)); err != nil {
 		return nil, err
 	}
 

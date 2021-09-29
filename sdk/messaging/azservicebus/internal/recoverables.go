@@ -1,6 +1,3 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
-// Licensed under the MIT License.
-
 package internal
 
 import (
@@ -11,37 +8,6 @@ import (
 	"github.com/Azure/go-amqp"
 )
 
-// AMQPReceiver is implemented by *amqp.Receiver
-type AMQPReceiver interface {
-	IssueCredit(credit uint32) error
-	DrainCredit(ctx context.Context) error
-	Receive(ctx context.Context) (*amqp.Message, error)
-}
-
-// AMQPReceiver is implemented by *amqp.Receiver
-type AMQPReceiverCloser interface {
-	AMQPReceiver
-	Close(ctx context.Context) error
-}
-
-// AMQPSession is implemented by *amqp.Session
-type AMQPSession interface {
-	NewReceiver(opts ...amqp.LinkOption) (*amqp.Receiver, error)
-	NewSender(opts ...amqp.LinkOption) (*amqp.Sender, error)
-}
-
-// AMQPSessionCloser is implemented by *amqp.Session
-type AMQPSessionCloser interface {
-	AMQPSession
-	Close(ctx context.Context) error
-}
-
-// AMQPSender is implemented by *amqp.Sender
-type AMQPSender interface {
-	Send(ctx context.Context, msg *amqp.Message) error
-	MaxMessageSize() uint64
-}
-
 // RecoverableSender is implemented by *RecoverableAMQPSender
 // NOTE: It's almost an AMQPSender but MaxMessageSize requires an
 // initialized link (and could fail if it can't obtain one)
@@ -50,18 +16,18 @@ type RecoverableSender interface {
 	MaxMessageSize(ctx context.Context) (uint64, error)
 }
 
-// AMQPSenderCloser is implemented by *amqp.Sender
-type AMQPSenderCloser interface {
-	AMQPSender
-	Close(ctx context.Context) error
+// RecoverableReceiver is implemented by *RecoverableAMQPReceiver
+// NOTE: It's almost an AMQPReceiver but IssueCredit (which normally)
+// doesn't do any I/O) needs to take a context since it can do a links.Get())
+type RecoverableReceiver interface {
+	IssueCredit(ctx context.Context, credit uint32) error
+	DrainCredit(ctx context.Context) error
+	Receive(ctx context.Context) (*amqp.Message, error)
 }
 
-// RPCLink is implemented by *rpc.Link
-type RPCLink interface {
-	Close(ctx context.Context) error
-	RetryableRPC(ctx context.Context, times int, delay time.Duration, msg *amqp.Message) (*rpc.Response, error)
-}
-
+// recoverableRPCLink is a little different than the RecoverableSender/Receiver
+// because it handles it's own recovery (it comes from the azure-amqp-common-go)
+// library.
 type recoverableRPCLink struct {
 	inner RPCLink
 	links AMQPLinks
@@ -88,13 +54,11 @@ func (r *recoverableRPCLink) Close(ctx context.Context) error {
 
 // recoverableAMQPReceiver
 
-func (r *RecoverableAMQPReceiver) IssueCredit(credit uint32) error {
-	ctx := context.Background()
-
+func (r *RecoverableAMQPReceiver) IssueCredit(ctx context.Context, credit uint32) error {
 	_, receiver, _, _, err := r.Links.Get(ctx)
 
 	if err != nil {
-		return err
+		return r.Links.RecoverIfNeeded(ctx, err)
 	}
 
 	err = receiver.IssueCredit(credit)
@@ -106,7 +70,7 @@ func (r *RecoverableAMQPReceiver) DrainCredit(ctx context.Context) error {
 	_, receiver, _, _, err := r.Links.Get(ctx)
 
 	if err != nil {
-		return err
+		return r.Links.RecoverIfNeeded(ctx, err)
 	}
 
 	err = receiver.DrainCredit(ctx)
@@ -118,7 +82,7 @@ func (r *RecoverableAMQPReceiver) Receive(ctx context.Context) (*amqp.Message, e
 	_, receiver, _, _, err := r.Links.Get(ctx)
 
 	if err != nil {
-		return nil, err
+		return nil, r.Links.RecoverIfNeeded(ctx, err)
 	}
 
 	msg, err := receiver.Receive(ctx)
@@ -131,7 +95,7 @@ func (s *RecoverableAMQPSender) Send(ctx context.Context, msg *amqp.Message) err
 	sender, _, _, _, err := s.Links.Get(ctx)
 
 	if err != nil {
-		return err
+		return s.Links.RecoverIfNeeded(ctx, err)
 	}
 
 	err = sender.Send(ctx, msg)
