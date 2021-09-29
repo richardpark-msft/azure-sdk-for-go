@@ -39,7 +39,7 @@ func applyResponseInfo(span tab.Spanner, res *http.Response) {
 
 func (mc *mgmtClient) startSpanFromContext(ctx context.Context, operationName string) (context.Context, tab.Spanner) {
 	ctx, span := startConsumerSpanFromContext(ctx, operationName)
-	span.AddAttributes(tab.StringAttribute("message_bus.destination", mc.managementPath))
+	span.AddAttributes(tab.StringAttribute("message_bus.destination", mc.links.ManagementPath()))
 	return ctx, span
 }
 
@@ -48,7 +48,7 @@ func (mc *mgmtClient) startProducerSpanFromContext(ctx context.Context, operatio
 	ApplyComponentInfo(span)
 	span.AddAttributes(
 		tab.StringAttribute("span.kind", "producer"),
-		tab.StringAttribute("message_bus.destination", mc.managementPath),
+		tab.StringAttribute("message_bus.destination", mc.links.ManagementPath()),
 	)
 	return ctx, span
 }

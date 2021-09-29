@@ -4,8 +4,12 @@
 package internal
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-amqp-common-go/v3/rpc"
@@ -109,4 +113,49 @@ func IsErrNotFound(err error) bool {
 
 func (e ErrConnectionClosed) Error() string {
 	return fmt.Sprintf("the connection has been closed: %s", string(e))
+}
+
+// Leveraging @serbrech's fine work from go-shuttle:
+// https://github.com/Azure/go-shuttle/blob/ea882947109ade9b34d4d69642fdf7aec4570fee/common/errorhandling/recovery.go
+
+// NOTE: Although the error message says that the operation can be retried, amqp:internal-error has been found to be persistent until we rebuild the connection (i.e: restart the process)
+// sample error :
+// *Error{
+//    Condition: amqp:internal-error,
+//    Description: The service was unable to process the request; please retry the operation.
+//    For more information on exception types and proper exception handling, please refer to http://go.microsoft.com/fwlink/?LinkId=761101
+//    Reference:<REDACTED>,
+//    TrackingId:<REDACTED>,
+//    SystemTracker:<REDACTED> Topic:<REDACTED>, Timestamp:2021-06-19T23:17:15, Info: map[]
+// }
+func isAmqpInternalError(err error) bool {
+	var amqpErr *amqp.Error
+	return errors.As(err, &amqpErr) &&
+		amqpErr.Condition == amqp.ErrorInternalError &&
+		strings.HasPrefix("the service was unable to process the request", strings.ToLower(amqpErr.Description))
+}
+
+func isPermanentNetError(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && (!netErr.Temporary() || netErr.Timeout())
+}
+
+func isEOF(err error) bool {
+	return errors.Is(err, io.EOF)
+}
+
+func isLinkDetachedError(err error) bool {
+	return errors.Is(err, amqp.ErrLinkDetached) ||
+		// I'm really curious if need to include this here or not.
+		//errors.Is(err, amqp.ErrLinkClosed) ||
+		errors.Is(err, amqp.ErrSessionClosed) ||
+		// TODO: proper error types needs to happen
+		strings.Contains(err.Error(), "detach frame link detached")
+}
+
+func isConnectionDead(err error) bool {
+	return isPermanentNetError(err) ||
+		//isLinkDetachedError(err) ||
+		isAmqpInternalError(err) ||
+		isEOF(err)
 }

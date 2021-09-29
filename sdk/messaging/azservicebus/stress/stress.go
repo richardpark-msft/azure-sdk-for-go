@@ -27,6 +27,7 @@ import (
 var messagesSent int32
 var messagesReceived int32
 var exceptions int32
+var messagesCompleted int32
 
 func main() {
 	runBasicSendAndReceiveTest()
@@ -55,7 +56,11 @@ func runBasicSendAndReceiveTest() {
 		ticker := time.NewTicker(5 * time.Second)
 
 		for range ticker.C {
-			log.Printf("Received: %d, Sent: %d, Exceptions: %d", atomic.LoadInt32(&messagesReceived), atomic.LoadInt32(&messagesSent), atomic.LoadInt32(&exceptions))
+			log.Printf("Received: %d, Sent: %d, Completed: %d, Exceptions: %d",
+				atomic.LoadInt32(&messagesReceived),
+				atomic.LoadInt32(&messagesSent),
+				atomic.LoadInt32(&messagesCompleted),
+				atomic.LoadInt32(&exceptions))
 		}
 	}()
 
@@ -120,7 +125,8 @@ func runProcessor(ctx context.Context, client *azservicebus.Client, queueName st
 	log.Printf("Starting processor...")
 	processor, err := client.NewProcessor(
 		azservicebus.ProcessorWithQueue(queueName),
-		azservicebus.ProcessorWithMaxConcurrentCalls(10))
+		azservicebus.ProcessorWithMaxConcurrentCalls(10),
+		azservicebus.ProcessorWithAutoComplete(false))
 
 	if err != nil {
 		trackException(telemetryClient, "Failed when creating processor", err)
@@ -130,7 +136,15 @@ func runProcessor(ctx context.Context, client *azservicebus.Client, queueName st
 	err = processor.Start(func(msg *azservicebus.ReceivedMessage) error {
 		atomic.AddInt32(&messagesReceived, 1)
 		telemetryClient.TrackMetric("MessageReceived", 1)
-		return nil
+
+		err := processor.CompleteMessage(ctx, msg)
+
+		if err == nil {
+			atomic.AddInt32(&messagesCompleted, 1)
+			telemetryClient.TrackMetric("MessagesCompleted", 1)
+		}
+
+		return err
 	}, func(err error) {
 		atomic.AddInt32(&exceptions, 1)
 		log.Printf("Exception in processor: %s", err.Error())
@@ -160,16 +174,13 @@ func continuallySend(ctx context.Context, client *azservicebus.Client, queueName
 
 	defer sender.Close(ctx)
 
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
 	for t := range ticker.C {
 		err := sender.SendMessage(ctx, &azservicebus.Message{
 			Body: []byte(fmt.Sprintf("hello world: %s", t.String())),
 		})
-
-		atomic.AddInt32(&messagesSent, 1)
-		telemetryClient.TrackMetric("MessageSent", 1)
 
 		if err != nil {
 			if err == context.Canceled || err == context.DeadlineExceeded {
@@ -179,6 +190,9 @@ func continuallySend(ctx context.Context, client *azservicebus.Client, queueName
 
 			trackException(telemetryClient, "SendMessage", err)
 			break
+		} else {
+			atomic.AddInt32(&messagesSent, 1)
+			telemetryClient.TrackMetric("MessageSent", 1)
 		}
 	}
 }

@@ -13,22 +13,24 @@ import (
 	"github.com/devigned/tab"
 )
 
-type errClosedPermanently struct {
-}
+type errClosedPermanently struct{}
 
 func (e errClosedPermanently) Error() string { return "Link has been closed permanently" }
 func (e errClosedPermanently) NonRetriable() {}
 
 type AMQPLinks interface {
 	EntityPath() string
+	ManagementPath() string
+
 	Audience() string
 
 	// Get will initialize a session and call its link.linkCreator function.
 	// If this link has been closed via Close() it will return an non retriable error.
 	Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, error)
 
-	// Recover will recycle all associated links (mgmt, receiver, sender and session)
-	Recover(ctx context.Context) error
+	// RecoverIfNeeded will check if an error requires recovery, and will recover
+	// the link or, possibly, the connection.
+	RecoverIfNeeded(ctxForLogging context.Context, err error) error
 
 	// Close will close the the link.
 	// If permanent is true the link will not be auto-recreated if Get/Recover
@@ -62,6 +64,9 @@ type amqpLinks struct {
 	// the amqpLinks
 	sender   AMQPSenderCloser
 	receiver AMQPReceiverCloser
+
+	// last connection revision seen by this links instance.
+	clientRevision uint64
 
 	// the current 'revision' of our set of links.
 	// starts at 1, increments each time you call Recover().
@@ -97,9 +102,17 @@ func newAMQPLinks(ns NamespaceForAMQPLinks, entityPath string, createLink Create
 	return l
 }
 
+// ManagementPath is the management path for the associated entity.
+func (links *amqpLinks) ManagementPath() string {
+	return links.managementPath
+}
+
 // Recover will recycle all associated links (mgmt, receiver, sender and session)
 // and recreate them using the link.linkCreator function.
-func (links *amqpLinks) Recover(ctx context.Context) error {
+func (links *amqpLinks) RecoverLink(ctx context.Context) error {
+	ctx, span := tab.StartSpan(ctx, "sb.link.recover")
+	defer span.End()
+
 	links.mu.RLock()
 	closedPermanently := links.closedPermanently
 	links.mu.RUnlock()
@@ -114,10 +127,67 @@ func (links *amqpLinks) Recover(ctx context.Context) error {
 	links.revision++
 
 	if err := links.closeWithoutLocking(ctx, false); err != nil {
-		tab.For(ctx)
+		tab.For(ctx).Error(err)
 	}
 
-	return links.initWithoutLocking(ctx)
+	err := links.initWithoutLocking(ctx)
+
+	if err != nil {
+		tab.For(ctx).Error(err)
+		return err
+	}
+
+	return nil
+}
+
+// RecoverIfNeeded will recover the links or the connection, depending
+// on the severity of the error.
+func (links *amqpLinks) RecoverIfNeeded(ctxForLogging context.Context, origErr error) error {
+	if origErr == nil {
+		return nil
+	}
+
+	_, span := tab.StartSpan(ctxForLogging, "sb.links.recover")
+	defer span.End()
+
+	if isLinkDetachedError(origErr) {
+		span.Logger().Info("Link was detached, recovering")
+
+		// recover this link and just give back the error so they can handle it
+		if err := links.RecoverLink(context.Background()); err != nil {
+			span.Logger().Error(err)
+		}
+
+		// hand them back their original error so they can figure out what to do (in some cases
+		// recovery is going to be very dependent on the caller)
+		return origErr
+	}
+
+	if isConnectionDead(origErr) {
+		span.Logger().Info("Connection is dead, recovering")
+
+		links.mu.RLock()
+		clientRevision := links.clientRevision
+		links.mu.RUnlock()
+
+		// recover the connection instead.
+		err := links.ns.Recover(context.Background(), clientRevision)
+
+		if err != nil {
+			span.Logger().Error(fmt.Errorf("Recover connection failure: %w", err))
+		} else {
+			// recover the links
+			if err := links.RecoverLink(context.Background()); err != nil {
+				span.Logger().Error(fmt.Errorf("Recover link failure: %w", err))
+			}
+		}
+
+		// hand them back their original error so they can figure out what to do (in some cases
+		// recovery is going to be very dependent on the caller)
+		return origErr
+	}
+
+	return origErr
 }
 
 // Get will initialize a session and call its link.linkCreator function.
@@ -184,7 +254,7 @@ func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
 		return err
 	}
 
-	l.session, err = l.ns.NewAMQPSession(ctx)
+	l.session, l.clientRevision, err = l.ns.NewAMQPSession(ctx)
 
 	if err != nil {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
@@ -202,7 +272,7 @@ func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
 		return err
 	}
 
-	l.mgmt, err = l.ns.NewMgmtClient(ctx, l.managementPath)
+	l.mgmt, err = l.ns.NewMgmtClient(ctx, l)
 
 	if err != nil {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {

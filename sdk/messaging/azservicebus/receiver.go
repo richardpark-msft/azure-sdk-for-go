@@ -56,6 +56,7 @@ type Receiver struct {
 
 	lastPeekedSequenceNumber int64
 	amqpLinks                internal.AMQPLinks
+	inner                    internal.AMQPReceiver
 }
 
 const defaultLinkRxBuffer = 2048
@@ -134,8 +135,15 @@ func newReceiver(ns internal.NamespaceWithNewAMQPLinks, options ...ReceiverOptio
 
 	receiver.amqpLinks = ns.NewAMQPLinks(entityPath, func(ctx context.Context, session internal.AMQPSession) (internal.AMQPSenderCloser, internal.AMQPReceiverCloser, error) {
 		linkOptions := createLinkOptions(receiver.config.ReceiveMode, entityPath)
-		return createReceiverLink(ctx, session, linkOptions)
+		receiver, err := createReceiverLink(ctx, session, linkOptions)
+		return nil, receiver, err
 	})
+
+	receiver.inner = &internal.RecoverableAMQPReceiver{Links: receiver.amqpLinks}
+
+	if err != nil {
+		return nil, err
+	}
 
 	// 'nil' settler handles returning an error message for receiveAndDelete links.
 	if receiver.config.ReceiveMode == PeekLock {
@@ -200,13 +208,7 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 		}
 	}
 
-	_, receiver, _, _, err := r.amqpLinks.Get(ctx)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if err := receiver.IssueCredit(uint32(maxMessages)); err != nil {
+	if err := r.inner.IssueCredit(uint32(maxMessages)); err != nil {
 		return nil, err
 	}
 
@@ -226,7 +228,8 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 	// - context is cancelled because one of our timeouts hit
 	// - we get all the messages we asked for
 	for {
-		amqpMessage, err := receiver.Receive(ctx)
+		// TODO: should we do retries here? Or should we just surface the error close to immediately?
+		amqpMessage, err := r.inner.Receive(ctx)
 
 		if err != nil {
 			fatalError = err
@@ -309,7 +312,7 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 		// this drain phase is pretty critical - we don't allow it to be interrupted otherwise the link is
 		// in an inconsistent state.
 		go func() {
-			if err := receiver.DrainCredit(ctx); err != nil {
+			if err := r.inner.DrainCredit(ctx); err != nil {
 				tab.For(ctx).Debug(fmt.Sprintf("Draining of credit failed. link will be closed and will re-open on next receive: %s", err.Error()))
 
 				// if the drain fails we just close the link so it'll re-open at the next receive.
@@ -324,7 +327,7 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 		// That's a gap here where we need to be able to drain _only_ the internally cached messages
 		// in the receiver. Filed as https://github.com/Azure/go-amqp/issues/71
 		for {
-			am, err := receiver.Receive(ctx)
+			am, err := r.inner.Receive(ctx)
 
 			if isCancelled(err) {
 				fatalError = err
@@ -531,15 +534,15 @@ func (e *entity) SetSubQueue(subQueue SubQueue) error {
 	return nil
 }
 
-func createReceiverLink(ctx context.Context, session internal.AMQPSession, linkOptions []amqp.LinkOption) (internal.AMQPSenderCloser, internal.AMQPReceiverCloser, error) {
+func createReceiverLink(ctx context.Context, session internal.AMQPSession, linkOptions []amqp.LinkOption) (internal.AMQPReceiverCloser, error) {
 	amqpReceiver, err := session.NewReceiver(linkOptions...)
 
 	if err != nil {
 		tab.For(ctx).Error(err)
-		return nil, nil, err
+		return nil, err
 	}
 
-	return nil, amqpReceiver, nil
+	return amqpReceiver, nil
 }
 
 func createLinkOptions(mode ReceiveMode, entityPath string) []amqp.LinkOption {

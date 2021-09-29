@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	amqpCommon "github.com/Azure/azure-amqp-common-go/v3"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
+	"github.com/jpillora/backoff"
 )
 
 type processorConfig struct {
@@ -150,7 +150,17 @@ func newProcessor(ns internal.NamespaceWithNewAMQPLinks, options ...ProcessorOpt
 
 	processor.amqpLinks = ns.NewAMQPLinks(entityPath, func(ctx context.Context, session internal.AMQPSession) (internal.AMQPSenderCloser, internal.AMQPReceiverCloser, error) {
 		linkOptions := createLinkOptions(processor.config.ReceiveMode, entityPath)
-		return createReceiverLink(ctx, session, linkOptions)
+		receiver, err := createReceiverLink(ctx, session, linkOptions)
+
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if err := receiver.IssueCredit(uint32(processor.config.MaxConcurrentCalls)); err != nil {
+			return nil, nil, err
+		}
+
+		return nil, receiver, nil
 	})
 	processor.settler = &messageSettler{links: processor.amqpLinks}
 
@@ -191,49 +201,28 @@ func (p *Processor) Start(handleMessage func(message *ReceivedMessage) error, ha
 			tab.For(ctx).Debug("Exiting forever loop in Processor")
 		}()
 
-		for {
-			retry, _ := amqpCommon.Retry(p.config.RetryOptions.Times, p.config.RetryOptions.Delay, func() (interface{}, error) {
-				_, receiver, _, _, err := p.amqpLinks.Get(ctx)
+		for { // infinity loop
+			retrier := internal.BackoffRetrier{
+				Backoff: backoff.Backoff{
+					Factor: 2,
+					Min:    p.config.RetryOptions.Delay,
+					Max:    p.config.RetryOptions.Delay * time.Duration(p.config.RetryOptions.Times),
+				},
+				MaxRetries: p.config.RetryOptions.Times,
+			}
 
-				if err != nil {
-					if !isRetryableLinksError(err) {
-						tab.For(ctx).Debug(fmt.Sprintf("Non retriable error occurred ('%s'), stopping the processor loop", err.Error()))
-						handleError(fmt.Errorf("Non-retryable error, stopping processor loop: %w", err))
-						return false, nil
-					}
-
-					// notify the user and then fall into doing a retry
-					handleError(fmt.Errorf("failed getting links for subscribe, will retry: %w", err))
-					return true, amqpCommon.Retryable("")
+			// notify the user but there's no reason to restart because this failure must be
+			// an internal error.
+			// we retry infinitely, but do it in the pattern they specify via their retryOptions for each "round" of retries.
+			for retrier.Try(ctx) {
+				receiver := &internal.RecoverableAMQPReceiver{
+					Links: p.links,
 				}
 
-				if err := receiver.IssueCredit(uint32(p.config.MaxConcurrentCalls)); err != nil {
-					// notify the user but there's no reason to restart because this failure must be
-					// an internal error.
-					handleError(fmt.Errorf("internal failure when issuing credit, will recreate links: %w", err))
-					return true, nil
+				if err := p.subscribe(ctx, receiver, handleMessage, handleError); err != nil {
+					handleError(err)
+					continue
 				}
-
-				// we retry infinitely, but do it in the pattern they specify via their retryOptions for each "round" of retries.
-				err = p.subscribe(ctx, receiver, handleMessage, handleError)
-
-				if err != nil {
-					if isRetryableSubscribeError(err) {
-						if err := p.amqpLinks.Close(ctx, false); err != nil {
-							tab.For(ctx).Debug(fmt.Sprintf("failed when closing links, will reopen: %s", err.Error()))
-						}
-
-						return true, amqpCommon.Retryable("")
-					}
-
-					return false, nil
-				}
-
-				return true, amqpCommon.Retryable("")
-			})
-
-			if !retry.(bool) {
-				break
 			}
 		}
 	}(p.receiversCtx)
@@ -287,14 +276,22 @@ func (p *Processor) subscribe(
 	defer p.wg.Done()
 
 	for {
-		amqpMessage, err := receiver.Receive(ctx)
+		retryPolicy := internal.DefaultRetryPolicy.Copy()
 
-		if err != nil {
-			if !isRetryableSubscribeError(err) {
-				return err
+		var err error
+		var amqpMessage *amqp.Message
+
+		for retryPolicy.Try(ctx) {
+			amqpMessage, err = receiver.Receive(ctx)
+
+			if err == nil {
+				break
 			}
+		}
 
-			// TODO: need to get a backoff policy in here.
+		// amqpMessage shouldn't be nil here, but somehow it is.
+		// need to track this down in the AMQP library.
+		if err != nil || amqpMessage == nil {
 			continue
 		}
 
@@ -368,7 +365,8 @@ func isRetryableSubscribeError(err error) bool {
 }
 
 // isRetryableLinksError checks if an error is retryable if it
-// was returned from links.Get().
+// was returned from links.Get(). For example, if the links were closed
+// you get an error that conforms to the NonRetriable interface.
 // NOTE: this function panics if you pass it a nil error.
 func isRetryableLinksError(err error) bool {
 	if isCancelled(err) {

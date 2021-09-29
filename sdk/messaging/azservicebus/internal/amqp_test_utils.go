@@ -10,6 +10,8 @@ import (
 
 type fakeNS struct {
 	claimNegotiated int
+	recovered       uint64
+	clientRevisions []uint64
 	MgmtClient      MgmtClient
 	Session         AMQPSessionCloser
 }
@@ -74,12 +76,18 @@ func (ns *fakeNS) GetEntityAudience(entityPath string) string {
 	return fmt.Sprintf("audience: %s", entityPath)
 }
 
-func (ns *fakeNS) NewAMQPSession(ctx context.Context) (AMQPSessionCloser, error) {
-	return ns.Session, nil
+func (ns *fakeNS) NewAMQPSession(ctx context.Context) (AMQPSessionCloser, uint64, error) {
+	return ns.Session, ns.recovered + 100, nil
 }
 
-func (ns *fakeNS) NewMgmtClient(ctx context.Context, managementPath string) (MgmtClient, error) {
+func (ns *fakeNS) NewMgmtClient(ctx context.Context, links AMQPLinks) (MgmtClient, error) {
 	return ns.MgmtClient, nil
+}
+
+func (ns *fakeNS) Recover(ctx context.Context, clientRevision uint64) error {
+	ns.clientRevisions = append(ns.clientRevisions, clientRevision)
+	ns.recovered++
+	return nil
 }
 
 type createLinkResponse struct {
