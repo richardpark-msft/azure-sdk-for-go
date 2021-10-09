@@ -3,7 +3,6 @@ package azservicebus
 import "testing"
 
 func TestRenewer_MessageLock_Expired(t *testing.T) {
-
 }
 
 func TestRenewer_MessageLock_Unowned(t *testing.T) {

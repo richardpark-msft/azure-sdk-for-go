@@ -17,6 +17,8 @@ type AMQPReceiver interface {
 	DrainCredit(ctx context.Context) error
 	Receive(ctx context.Context) (*amqp.Message, error)
 
+	LinkName() string
+
 	// settlement functions
 	AcceptMessage(ctx context.Context, msg *amqp.Message) error
 	RejectMessage(ctx context.Context, msg *amqp.Message, e *amqp.Error) error
