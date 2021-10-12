@@ -8,6 +8,7 @@ import (
 	"errors"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 	"github.com/Azure/go-amqp"
 )
 
@@ -33,10 +34,10 @@ func newMessageSettler(links internal.AMQPLinks, baseRetrier internal.Retrier) s
 	}
 }
 
-func (s *messageSettler) useManagementLink(m *ReceivedMessage, receiver internal.AMQPReceiver) bool {
+func (s *messageSettler) useManagementLink(m *ReceivedMessage, linkName string) bool {
 	return s.onlyDoBackupSettlement ||
 		m.deferred ||
-		m.rawAMQPMessage.LinkName() != receiver.LinkName()
+		m.rawAMQPMessage.LinkName() != linkName
 }
 
 func (s *messageSettler) settleWithRetries(ctx context.Context, message *ReceivedMessage, settleFn func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) error) error {
@@ -54,19 +55,21 @@ func (s *messageSettler) settleWithRetries(ctx context.Context, message *Receive
 
 		_, receiver, mgmt, linkRevision, lastErr = s.links.Get(ctx)
 
-		if lastErr != nil {
-			_ = s.links.RecoverIfNeeded(ctx, linkRevision, lastErr)
-			continue
+		if lastErr == nil {
+			lastErr = settleFn(receiver, mgmt)
+
+			if lastErr == nil {
+				return nil
+			}
 		}
 
-		lastErr := settleFn(receiver, mgmt)
-
-		if lastErr != nil {
-			_ = s.links.RecoverIfNeeded(ctx, linkRevision, lastErr)
-			continue
+		if sbe := s.links.RecoverIfNeeded(ctx, linkRevision, lastErr); sbe != nil {
+			if sbe.Fix == sberrors.FixNotPossible {
+				return sbe
+			}
 		}
 
-		break
+		continue
 	}
 
 	return lastErr
@@ -75,7 +78,7 @@ func (s *messageSettler) settleWithRetries(ctx context.Context, message *Receive
 // CompleteMessage completes a message, deleting it from the queue or subscription.
 func (s *messageSettler) CompleteMessage(ctx context.Context, message *ReceivedMessage) error {
 	return s.settleWithRetries(ctx, message, func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) error {
-		if s.useManagementLink(message, receiver) {
+		if s.useManagementLink(message, receiver.LinkName()) {
 			return mgmt.SendDisposition(ctx, bytesToAMQPUUID(message.LockToken), internal.Disposition{Status: internal.CompletedDisposition})
 		} else {
 			return receiver.AcceptMessage(ctx, message.rawAMQPMessage)
@@ -88,7 +91,7 @@ func (s *messageSettler) CompleteMessage(ctx context.Context, message *ReceivedM
 // depending on your queue or subscription's configuration.
 func (s *messageSettler) AbandonMessage(ctx context.Context, message *ReceivedMessage) error {
 	return s.settleWithRetries(ctx, message, func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) error {
-		if s.useManagementLink(message, receiver) {
+		if s.useManagementLink(message, receiver.LinkName()) {
 			d := internal.Disposition{
 				Status: internal.AbandonedDisposition,
 			}
@@ -103,7 +106,7 @@ func (s *messageSettler) AbandonMessage(ctx context.Context, message *ReceivedMe
 // can be received using `Receiver.ReceiveDeferredMessages`.
 func (s *messageSettler) DeferMessage(ctx context.Context, message *ReceivedMessage) error {
 	return s.settleWithRetries(ctx, message, func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) error {
-		if s.useManagementLink(message, receiver) {
+		if s.useManagementLink(message, receiver.LinkName()) {
 			d := internal.Disposition{
 				Status: internal.DeferredDisposition,
 			}
@@ -145,7 +148,7 @@ func (s *messageSettler) DeadLetterMessage(ctx context.Context, message *Receive
 			}
 		}
 
-		if s.useManagementLink(message, receiver) {
+		if s.useManagementLink(message, receiver.LinkName()) {
 			d := internal.Disposition{
 				Status:                internal.SuspendedDisposition,
 				DeadLetterDescription: &description,

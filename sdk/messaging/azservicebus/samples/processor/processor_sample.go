@@ -59,8 +59,8 @@ func main() {
 		queue,
 		&azservicebus.ProcessorOptions{
 			// Will auto-complete or auto-abandon messages, based on the result from you callback
-			// (this is true, by default)
-			ManualComplete: false,
+			// (this is enabled, by default)
+			AutoComplete: nil,
 			// or for a subscription
 			ReceiveMode: azservicebus.PeekLock,
 		},

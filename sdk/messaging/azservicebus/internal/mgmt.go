@@ -13,6 +13,7 @@ import (
 	common "github.com/Azure/azure-amqp-common-go/v3"
 	"github.com/Azure/azure-amqp-common-go/v3/rpc"
 	"github.com/Azure/azure-amqp-common-go/v3/uuid"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/tracing"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
@@ -34,6 +35,11 @@ const (
 	DeferredDisposition  DispositionStatus = "defered"
 )
 
+const (
+	amqpRetryDefaultTimes int           = 3
+	amqpRetryDefaultDelay time.Duration = time.Second
+)
+
 type (
 	mgmtClient struct {
 		ns    NamespaceForMgmtClient
@@ -52,6 +58,7 @@ type MgmtClient interface {
 	SendDisposition(ctx context.Context, lockToken *amqp.UUID, state Disposition) error
 	ReceiveDeferred(ctx context.Context, mode ReceiveMode, sequenceNumbers []int64) ([]*amqp.Message, error)
 	PeekMessages(ctx context.Context, fromSequenceNumber int64, messageCount int32) ([]*amqp.Message, error)
+	RenewLocks(ctx context.Context, linkName string, lockTokens []amqp.UUID) ([]time.Time, error)
 
 	ScheduleMessages(ctx context.Context, enqueueTime time.Time, messages ...*amqp.Message) ([]int64, error)
 	CancelScheduled(ctx context.Context, seq ...int64) error
@@ -140,7 +147,7 @@ func (mc *mgmtClient) doRPCWithRetry(ctx context.Context, msg *amqp.Message, tim
 			}
 		}
 
-		if sendCount >= amqpRetryDefaultTimes || !isAMQPTransientError(ctx, err) {
+		if sendCount >= amqpRetryDefaultTimes || !sberrors.IsAMQPTransientError(ctx, err) {
 			return nil, err
 		}
 		sendCount++
@@ -168,28 +175,6 @@ func (mc *mgmtClient) doRPCWithRetry(ctx context.Context, msg *amqp.Message, tim
 			return nil, retryErr
 		}
 	}
-}
-
-// returns true if the AMQP error is considered transient
-func isAMQPTransientError(ctx context.Context, err error) bool {
-	// always retry on a detach error
-	var amqpDetach *amqp.DetachError
-	if errors.As(err, &amqpDetach) {
-		return true
-	}
-	// for an AMQP error, only retry depending on the condition
-	var amqpErr *amqp.Error
-	if errors.As(err, &amqpErr) {
-		switch amqpErr.Condition {
-		case errorServerBusy, errorTimeout, errorOperationCancelled, errorContainerClose:
-			return true
-		default:
-			tab.For(ctx).Debug(fmt.Sprintf("isAMQPTransientError: condition %s is not transient", amqpErr.Condition))
-			return false
-		}
-	}
-	tab.For(ctx).Debug(fmt.Sprintf("isAMQPTransientError: %T is not transient", err))
-	return false
 }
 
 func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, sequenceNumbers []int64) ([]*amqp.Message, error) {
@@ -228,7 +213,7 @@ func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seq
 	}
 
 	if rsp.Code == 204 {
-		return nil, ErrNoMessages{}
+		return nil, sberrors.ErrNoMessages{}
 	}
 
 	// Deferred messages come back in a relatively convoluted manner:
@@ -238,34 +223,34 @@ func (mc *mgmtClient) ReceiveDeferred(ctx context.Context, mode ReceiveMode, seq
 	// 			of an array with raw encoded Service Bus messages
 	val, ok := rsp.Message.Value.(map[string]interface{})
 	if !ok {
-		return nil, NewErrIncorrectType(messageField, map[string]interface{}{}, rsp.Message.Value)
+		return nil, sberrors.NewErrIncorrectType(messageField, map[string]interface{}{}, rsp.Message.Value)
 	}
 
 	rawMessages, ok := val[messagesField]
 	if !ok {
-		return nil, ErrMissingField(messagesField)
+		return nil, sberrors.ErrMissingField(messagesField)
 	}
 
 	messages, ok := rawMessages.([]interface{})
 	if !ok {
-		return nil, NewErrIncorrectType(messagesField, []interface{}{}, rawMessages)
+		return nil, sberrors.NewErrIncorrectType(messagesField, []interface{}{}, rawMessages)
 	}
 
 	transformedMessages := make([]*amqp.Message, len(messages))
 	for i := range messages {
 		rawEntry, ok := messages[i].(map[string]interface{})
 		if !ok {
-			return nil, NewErrIncorrectType(messageField, map[string]interface{}{}, messages[i])
+			return nil, sberrors.NewErrIncorrectType(messageField, map[string]interface{}{}, messages[i])
 		}
 
 		rawMessage, ok := rawEntry[messageField]
 		if !ok {
-			return nil, ErrMissingField(messageField)
+			return nil, sberrors.ErrMissingField(messageField)
 		}
 
 		marshaled, ok := rawMessage.([]byte)
 		if !ok {
-			return nil, new(ErrMalformedMessage)
+			return nil, new(sberrors.ErrMalformedMessage)
 		}
 
 		var rehydrated amqp.Message
@@ -318,21 +303,21 @@ func (mc *mgmtClient) PeekMessages(ctx context.Context, fromSequenceNumber int64
 	// 			of an array with raw encoded Service Bus messages
 	val, ok := rsp.Message.Value.(map[string]interface{})
 	if !ok {
-		err = NewErrIncorrectType(messageField, map[string]interface{}{}, rsp.Message.Value)
+		err = sberrors.NewErrIncorrectType(messageField, map[string]interface{}{}, rsp.Message.Value)
 		tab.For(ctx).Error(err)
 		return nil, err
 	}
 
 	rawMessages, ok := val[messagesField]
 	if !ok {
-		err = ErrMissingField(messagesField)
+		err = sberrors.ErrMissingField(messagesField)
 		tab.For(ctx).Error(err)
 		return nil, err
 	}
 
 	messages, ok := rawMessages.([]interface{})
 	if !ok {
-		err = NewErrIncorrectType(messagesField, []interface{}{}, rawMessages)
+		err = sberrors.NewErrIncorrectType(messagesField, []interface{}{}, rawMessages)
 		tab.For(ctx).Error(err)
 		return nil, err
 	}
@@ -341,21 +326,21 @@ func (mc *mgmtClient) PeekMessages(ctx context.Context, fromSequenceNumber int64
 	for i := range messages {
 		rawEntry, ok := messages[i].(map[string]interface{})
 		if !ok {
-			err = NewErrIncorrectType(messageField, map[string]interface{}{}, messages[i])
+			err = sberrors.NewErrIncorrectType(messageField, map[string]interface{}{}, messages[i])
 			tab.For(ctx).Error(err)
 			return nil, err
 		}
 
 		rawMessage, ok := rawEntry[messageField]
 		if !ok {
-			err = ErrMissingField(messageField)
+			err = sberrors.ErrMissingField(messageField)
 			tab.For(ctx).Error(err)
 			return nil, err
 		}
 
 		marshaled, ok := rawMessage.([]byte)
 		if !ok {
-			err = new(ErrMalformedMessage)
+			err = new(sberrors.ErrMalformedMessage)
 			tab.For(ctx).Error(err)
 			return nil, err
 		}
@@ -391,12 +376,12 @@ func (mc *mgmtClient) PeekMessages(ctx context.Context, fromSequenceNumber int64
 
 // RenewLocks renews the locks in a single 'com.microsoft:renew-lock' operation.
 // NOTE: this function assumes all the messages received on the same link.
-func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockTokens ...*amqp.UUID) (err error) {
+func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockTokens []amqp.UUID) ([]time.Time, error) {
 	ctx, span := tracing.StartConsumerSpanFromContext(ctx, tracing.SpanRenewLock, Version)
 	defer span.End()
 
 	if len(lockTokens) == 0 {
-		return nil
+		return nil, errors.New("lockTokens was empty")
 	}
 
 	renewRequestMsg := &amqp.Message{
@@ -413,18 +398,39 @@ func (mc *mgmtClient) RenewLocks(ctx context.Context, linkName string, lockToken
 	}
 
 	response, err := mc.doRPCWithRetry(ctx, renewRequestMsg, 3, 1*time.Second)
+
 	if err != nil {
 		tab.For(ctx).Error(err)
-		return err
+		return nil, sberrors.AsServiceBusError(ctx, err)
 	}
 
 	if response.Code != 200 {
 		err := fmt.Errorf("error renewing locks: %v", response.Description)
 		tab.For(ctx).Error(err)
-		return err
+		return nil, err
 	}
 
-	return nil
+	// extract the new lock renewal times from the response
+	// response.Message.
+
+	val, ok := response.Message.Value.(map[string]interface{})
+	if !ok {
+		return nil, sberrors.NewErrIncorrectType("Message.Value", map[string]interface{}{}, response.Message.Value)
+	}
+
+	expirations, ok := val["expirations"]
+
+	if !ok {
+		return nil, sberrors.NewErrIncorrectType("Message.Value[\"expirations\"]", map[string]interface{}{}, response.Message.Value)
+	}
+
+	asTimes, ok := expirations.([]time.Time)
+
+	if !ok {
+		return nil, sberrors.NewErrIncorrectType("Message.Value[\"expirations\"] as times", map[string]interface{}{}, response.Message.Value)
+	}
+
+	return asTimes, nil
 }
 
 // SendDisposition allows you settle a message using the management link, rather than via your
@@ -550,7 +556,7 @@ func (mc *mgmtClient) ScheduleMessages(ctx context.Context, enqueueTime time.Tim
 	}
 
 	if resp.Code != 200 {
-		return nil, ErrAMQP(*resp)
+		return nil, sberrors.ErrAMQP(*resp)
 	}
 
 	retval := make([]int64, 0, len(messages))
@@ -563,11 +569,11 @@ func (mc *mgmtClient) ScheduleMessages(ctx context.Context, enqueueTime time.Tim
 				}
 				return retval, nil
 			}
-			return nil, NewErrIncorrectType(sequenceFieldName, []int64{}, rawArr)
+			return nil, sberrors.NewErrIncorrectType(sequenceFieldName, []int64{}, rawArr)
 		}
-		return nil, ErrMissingField(sequenceFieldName)
+		return nil, sberrors.ErrMissingField(sequenceFieldName)
 	}
-	return nil, NewErrIncorrectType("value", map[string]interface{}{}, resp.Message.Value)
+	return nil, sberrors.NewErrIncorrectType("value", map[string]interface{}{}, resp.Message.Value)
 }
 
 // CancelScheduled allows for removal of messages that have been handed to the Service Bus broker for later delivery,
@@ -596,7 +602,7 @@ func (mc *mgmtClient) CancelScheduled(ctx context.Context, seq ...int64) error {
 	}
 
 	if resp.Code != 200 {
-		return ErrAMQP(*resp)
+		return sberrors.ErrAMQP(*resp)
 	}
 
 	return nil

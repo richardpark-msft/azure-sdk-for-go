@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
 	"github.com/Azure/go-amqp"
@@ -38,16 +39,20 @@ type ProcessorOptions struct {
 	// of the queue or subscription.
 	SubQueue SubQueue
 
-	// ManualComplete controls whether messages must be settled explicitly via the
-	// settlement methods (ie, Complete, Abandon) or if the
-	// processor will automatically settle messages.
-	//
-	// If true, no automatic settlement is done.
-	// If false, the return value of your `handleMessage` function will control if the
-	// message is abandoned (non-nil error return) or completed (nil error return).
+	// AutoComplete controls whether processor will automatically settle messages
+	// using the return value of your `handleMessage` function.
+	// If your handleMessage function returns a non-nil error the message will be abandoned.
+	// If your handleMessage function returns nil, the message will be completed.
 	//
 	// This option is enabled, by default.
-	ManualComplete bool
+	AutoComplete *bool
+
+	// AutoLockRenewal controls whether the processor will automatically renew your message
+	// locks in the background, and for how long.
+	// To disable, set to 0.
+	//
+	// Defaults to 5 minutes
+	MaxAutoLockRenewal *time.Duration
 
 	// MaxConcurrentCalls controls the maximum number of message processing
 	// goroutines that are active at any time.
@@ -60,6 +65,7 @@ type Processor struct {
 	receiveMode        ReceiveMode
 	autoComplete       bool
 	maxConcurrentCalls int
+	maxAutoLockRenewal time.Duration
 
 	settler   settler
 	amqpLinks internal.AMQPLinks
@@ -74,20 +80,30 @@ type Processor struct {
 
 	wg sync.WaitGroup
 
-	baseRetrier    internal.Retrier
+	finiteRetrier  internal.Retrier
 	cleanupOnClose func()
+
+	messageLockMu sync.Mutex
+	messageLocks  map[[16]byte]context.CancelFunc
 }
 
 func applyProcessorOptions(processor *Processor, entity *entity, options *ProcessorOptions) error {
-	if options == nil {
-		processor.maxConcurrentCalls = 1
-		processor.receiveMode = PeekLock
-		processor.autoComplete = true
+	processor.maxConcurrentCalls = 1
+	processor.receiveMode = PeekLock
+	processor.autoComplete = true
+	processor.maxAutoLockRenewal = 5 * time.Minute
 
+	if options == nil {
 		return nil
 	}
 
-	processor.autoComplete = !options.ManualComplete
+	if options.AutoComplete != nil {
+		processor.autoComplete = *options.AutoComplete
+	}
+
+	if options.MaxAutoLockRenewal != nil {
+		processor.maxAutoLockRenewal = *options.MaxAutoLockRenewal
+	}
 
 	if err := checkReceiverMode(options.ReceiveMode); err != nil {
 		return err
@@ -109,7 +125,7 @@ func applyProcessorOptions(processor *Processor, entity *entity, options *Proces
 func newProcessor(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanupOnClose func(), options *ProcessorOptions) (*Processor, error) {
 	processor := &Processor{
 		// TODO: make this configurable
-		baseRetrier: internal.NewBackoffRetrier(internal.BackoffRetrierParams{
+		finiteRetrier: internal.NewBackoffRetrier(internal.BackoffRetrierParams{
 			Factor:     1.5,
 			Min:        time.Second,
 			Max:        time.Minute,
@@ -117,6 +133,7 @@ func newProcessor(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanup
 		}),
 		cleanupOnClose: cleanupOnClose,
 		mu:             &sync.Mutex{},
+		messageLocks:   map[[16]byte]context.CancelFunc{},
 	}
 
 	if err := applyProcessorOptions(processor, entity, options); err != nil {
@@ -145,7 +162,7 @@ func newProcessor(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanup
 		return nil, receiver, nil
 	})
 
-	processor.settler = newMessageSettler(processor.amqpLinks, processor.baseRetrier)
+	processor.settler = newMessageSettler(processor.amqpLinks, processor.finiteRetrier)
 	processor.receiversCtx, processor.cancelReceivers = context.WithCancel(context.Background())
 
 	return processor, nil
@@ -173,7 +190,13 @@ func (p *Processor) Start(ctx context.Context, handleMessage func(message *Recei
 		}
 
 		p.userMessageHandler = handleMessage
-		p.userErrorHandler = handleError
+		p.userErrorHandler = func(err error) {
+			if sberrors.IsCancelError(err) {
+				return
+			}
+
+			handleError(err)
+		}
 
 		p.receiversCtx, p.cancelReceivers = context.WithCancel(ctx)
 
@@ -185,11 +208,11 @@ func (p *Processor) Start(ctx context.Context, handleMessage func(message *Recei
 	}
 
 	for {
-		retrier := p.baseRetrier.Copy()
+		retrier := p.finiteRetrier.Copy()
 
 		for retrier.Try(p.receiversCtx) {
 			if err := p.subscribe(); err != nil {
-				if internal.IsCancelError(err) {
+				if sberrors.IsCancelError(err) {
 					break
 				}
 			}
@@ -252,27 +275,69 @@ func (p *Processor) Close(ctx context.Context) error {
 
 // CompleteMessage completes a message, deleting it from the queue or subscription.
 func (p *Processor) CompleteMessage(ctx context.Context, message *ReceivedMessage) error {
-	return p.settler.CompleteMessage(ctx, message)
+	if err := p.settler.CompleteMessage(ctx, message); err != nil {
+		return err
+	}
+
+	p.cancelRenewal(message.LockToken)
+	return nil
 }
 
 // AbandonMessage will cause a message to be returned to the queue or subscription.
 // This will increment its delivery count, and potentially cause it to be dead lettered
 // depending on your queue or subscription's configuration.
 func (p *Processor) AbandonMessage(ctx context.Context, message *ReceivedMessage) error {
-	return p.settler.AbandonMessage(ctx, message)
+	if err := p.settler.AbandonMessage(ctx, message); err != nil {
+		return err
+	}
+
+	p.cancelRenewal(message.LockToken)
+	return nil
 }
 
 // DeferMessage will cause a message to be deferred. Deferred messages
 // can be received using `Receiver.ReceiveDeferredMessages`.
 func (p *Processor) DeferMessage(ctx context.Context, message *ReceivedMessage) error {
-	return p.settler.DeferMessage(ctx, message)
+	if err := p.settler.DeferMessage(ctx, message); err != nil {
+		return err
+	}
+
+	p.cancelRenewal(message.LockToken)
+	return nil
 }
 
 // DeadLetterMessage settles a message by moving it to the dead letter queue for a
 // queue or subscription. To receive these messages create a processor with `Client.NewProcessorForQueue()`
 // or `Client.NewProcessorForSubscription()` using the `ProcessorOptions.SubQueue` option.
 func (p *Processor) DeadLetterMessage(ctx context.Context, message *ReceivedMessage, options *DeadLetterOptions) error {
-	return p.settler.DeadLetterMessage(ctx, message, options)
+	if err := p.settler.DeadLetterMessage(ctx, message, options); err != nil {
+		return err
+	}
+
+	p.cancelRenewal(message.LockToken)
+	return nil
+}
+
+func (p *Processor) cancelRenewal(lockToken [16]byte) {
+	p.messageLockMu.Lock()
+	cancel := p.messageLocks[lockToken]
+	delete(p.messageLocks, lockToken)
+	p.messageLockMu.Unlock()
+
+	cancel()
+}
+
+func (p *Processor) startMessageLockRenewal(receivedMessage *ReceivedMessage) {
+	if p.maxAutoLockRenewal == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithDeadline(p.receiversCtx, time.Now().Add(p.maxAutoLockRenewal))
+	go autoRenewMessageLock(ctx, internal.DefaultInfiniteRetrier, p.amqpLinks, receivedMessage)
+
+	p.messageLockMu.Lock()
+	p.messageLocks[receivedMessage.LockToken] = cancel
+	p.messageLockMu.Unlock()
 }
 
 // subscribe continually receives messages from Service Bus, stopping
@@ -285,10 +350,6 @@ func (p *Processor) subscribe() error {
 		_, receiver, _, linkRevision, err := p.amqpLinks.Get(p.receiversCtx)
 
 		if err != nil {
-			if internal.IsCancelError(err) {
-				return err
-			}
-
 			if err := p.amqpLinks.RecoverIfNeeded(p.receiversCtx, linkRevision, err); err != nil {
 				p.userErrorHandler(err)
 				return err
@@ -298,10 +359,6 @@ func (p *Processor) subscribe() error {
 		amqpMessage, err := receiver.Receive(p.receiversCtx)
 
 		if err != nil {
-			if internal.IsCancelError(err) {
-				return err
-			}
-
 			if err := p.amqpLinks.RecoverIfNeeded(p.receiversCtx, linkRevision, err); err != nil {
 				p.userErrorHandler(err)
 			}
@@ -327,11 +384,39 @@ func (p *Processor) subscribe() error {
 	}
 }
 
+func (p *Processor) RenewMessageLock(ctx context.Context, msg *ReceivedMessage) (time.Time, error) {
+	retrier := p.finiteRetrier.Copy()
+
+	for retrier.Try(ctx) {
+		var mgmt internal.MgmtClient
+		_, _, mgmt, _, err := p.amqpLinks.Get(ctx)
+
+		if err == nil {
+			var newExpirationTimes []time.Time
+			newExpirationTimes, err = mgmt.RenewLocks(ctx, msg.rawAMQPMessage.LinkName(), []amqp.UUID{msg.LockToken})
+
+			if err == nil {
+				return newExpirationTimes[0], nil
+			}
+		}
+
+		sbe := sberrors.AsServiceBusError(ctx, err)
+
+		if sbe.Fix != sberrors.FixByRetrying {
+			return time.Time{}, sbe
+		}
+	}
+
+	return time.Time{}, ctx.Err()
+}
+
 func (p *Processor) processMessage(ctx context.Context, receiver internal.AMQPReceiver, amqpMessage *amqp.Message) error {
 	ctx, span := tab.StartSpan(ctx, tracing.SpanProcessorMessage)
 	defer span.End()
 
 	receivedMessage := newReceivedMessage(ctx, amqpMessage)
+	p.startMessageLockRenewal(receivedMessage)
+
 	messageHandlerErr := p.userMessageHandler(receivedMessage)
 
 	if messageHandlerErr != nil {
@@ -342,9 +427,9 @@ func (p *Processor) processMessage(ctx context.Context, receiver internal.AMQPRe
 		var settleErr error
 
 		if messageHandlerErr != nil {
-			settleErr = p.settler.AbandonMessage(ctx, receivedMessage)
+			settleErr = p.AbandonMessage(ctx, receivedMessage)
 		} else {
-			settleErr = p.settler.CompleteMessage(ctx, receivedMessage)
+			settleErr = p.CompleteMessage(ctx, receivedMessage)
 		}
 
 		if settleErr != nil {
@@ -360,7 +445,7 @@ func (p *Processor) processMessage(ctx context.Context, receiver internal.AMQPRe
 	}
 
 	if err := receiver.IssueCredit(1); err != nil {
-		if !internal.IsDrainingError(err) {
+		if !sberrors.IsDrainingError(err) {
 			p.userErrorHandler(err)
 			return fmt.Errorf("failed issuing additional credit, processor will be restarted: %w", err)
 		}

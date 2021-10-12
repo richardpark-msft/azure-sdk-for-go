@@ -10,15 +10,27 @@ import (
 	"github.com/jpillora/backoff"
 )
 
+var DefaultFiniteRetrier = NewBackoffRetrier(BackoffRetrierParams{
+	MaxRetries: 3,
+	Factor:     2,
+	Min:        time.Second,
+	Max:        time.Minute,
+	Jitter:     true,
+})
+
+var DefaultInfiniteRetrier = NewUnlimitedCyclingRetrier(UnlimitedCyclingRetrierOptions{
+	Factor: 2,
+	Min:    time.Second,
+	Max:    time.Minute,
+	Jitter: true,
+})
+
 // A retrier that allows you to do a basic for loop and get backoff
 // and retry limits. See `Try` for more details on how to use it.
 type Retrier interface {
 	// Copies the retrier. Retriers are stateful and must be copied
 	// before starting a set of retries.
 	Copy() Retrier
-
-	// Exhausted is true if the retries were exhausted.
-	Exhausted() bool
 
 	// CurrentTry is the current try (0 for the first run before retries)
 	CurrentTry() int
@@ -31,12 +43,60 @@ type Retrier interface {
 	//    for rp.Try(ctx) {
 	//       <your code>
 	//    }
-	//
-	//    if rp.Cancelled() || rp.Exhausted() {
-	//       // no more retries needed
-	//    }
-	//
 	Try(ctx context.Context) bool
+}
+
+type unlimitedCyclingRetrier struct {
+	backoff backoff.Backoff
+	tries   int
+}
+
+func (r *unlimitedCyclingRetrier) Copy() Retrier {
+	return &unlimitedCyclingRetrier{
+		backoff: r.backoff,
+		tries:   0,
+	}
+}
+
+func (r *unlimitedCyclingRetrier) CurrentTry() int {
+	return r.tries
+}
+
+func (r *unlimitedCyclingRetrier) Try(ctx context.Context) bool {
+	defer func() { r.tries++ }()
+
+	duration := r.backoff.Duration()
+
+	select {
+	case <-time.After(duration):
+		if duration >= r.backoff.Max {
+			r.backoff.Reset()
+		}
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+type UnlimitedCyclingRetrierOptions struct {
+	Factor float64
+	// Jitter eases contention by randomizing backoff steps
+	Jitter bool
+	// Min and Max are the minimum and maximum values of the counter
+	Min, Max time.Duration
+}
+
+// NewUnlimitedCyclingRetrier creates a retrier which infinitely retries, but uses the
+// backoff pol
+func NewUnlimitedCyclingRetrier(options UnlimitedCyclingRetrierOptions) Retrier {
+	return &unlimitedCyclingRetrier{
+		backoff: backoff.Backoff{
+			Factor: options.Factor,
+			Jitter: options.Jitter,
+			Min:    options.Min,
+			Max:    options.Max,
+		},
+	}
 }
 
 // Encapsulates a backoff policy, which allows you to configure the amount of

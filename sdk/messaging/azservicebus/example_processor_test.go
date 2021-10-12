@@ -21,7 +21,8 @@ func ExampleClient_NewProcessorForSubscription() {
 			// active message `handleMessage` calls that the processor will allow at any time.
 			MaxConcurrentCalls: 1,
 			ReceiveMode:        azservicebus.PeekLock,
-			ManualComplete:     false,
+			// AutoComplete is on by default.
+			AutoComplete: nil,
 		},
 	)
 	exitOnError("Failed to create Processor", err)
@@ -35,7 +36,8 @@ func ExampleClient_NewProcessorForQueue() {
 			// active message `handleMessage` calls that the processor will allow at any time.
 			MaxConcurrentCalls: 1,
 			ReceiveMode:        azservicebus.PeekLock,
-			ManualComplete:     false,
+			// AutoComplete is on by default.
+			AutoComplete: nil,
 		},
 	)
 

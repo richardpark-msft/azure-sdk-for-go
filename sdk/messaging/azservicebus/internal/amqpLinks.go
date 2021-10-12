@@ -10,18 +10,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/tracing"
 	"github.com/devigned/tab"
 )
-
-type errClosedPermanently struct{}
-
-func (e errClosedPermanently) Error() string { return "Link has been closed permanently" }
-func (e errClosedPermanently) NonRetriable() {}
-
-func ShouldRecover(ctx context.Context, err error) bool {
-	return shouldRecreateConnection(ctx, err) || shouldRecreateLink(err)
-}
 
 type AMQPLinks interface {
 	EntityPath() string
@@ -35,7 +27,7 @@ type AMQPLinks interface {
 
 	// RecoverIfNeeded will check if an error requires recovery, and will recover
 	// the link or, possibly, the connection.
-	RecoverIfNeeded(ctx context.Context, linksRevision uint64, err error) error
+	RecoverIfNeeded(ctx context.Context, linksRevision uint64, err error) *sberrors.ServiceBusError
 
 	// Close will close the the link.
 	// If permanent is true the link will not be auto-recreated if Get/Recover
@@ -119,7 +111,7 @@ func (links *amqpLinks) ManagementPath() string {
 
 // recoverLink will recycle all associated links (mgmt, receiver, sender and session)
 // and recreate them using the link.linkCreator function.
-func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint64) error {
+func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint64) *sberrors.ServiceBusError {
 	ctx, span := tab.StartSpan(ctx, tracing.SpanRecoverLink)
 	defer span.End()
 
@@ -130,7 +122,8 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 
 	if closedPermanently {
 		span.AddAttributes(tab.StringAttribute("outcome", "was_closed_permanently"))
-		return errClosedPermanently{}
+
+		return sberrors.NewServiceBusError(sberrors.FixNotPossible, errors.New("Link has been closed permanently"))
 	}
 
 	if theirLinkRevision != nil && ourLinkRevision > *theirLinkRevision {
@@ -179,48 +172,59 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 // Recover will recover the links or the connection, depending
 // on the severity of the error. This function uses the `baseRetrier`
 // defined in the links struct.
-func (links *amqpLinks) RecoverIfNeeded(ctx context.Context, linksRevision uint64, origErr error) error {
+func (links *amqpLinks) RecoverIfNeeded(ctx context.Context, linksRevision uint64, origErr error) *sberrors.ServiceBusError {
 	ctx, span := tab.StartSpan(ctx, tracing.SpanRecover)
 	defer span.End()
 
-	var err error = origErr
-
 	retrier := links.baseRetrier.Copy()
 
+	var sbe *sberrors.ServiceBusError = sberrors.AsServiceBusError(ctx, origErr)
+
 	for retrier.Try(ctx) {
-		span.AddAttributes(tab.StringAttribute("recover_attempt", fmt.Sprintf("%d", retrier.CurrentTry())))
+		span.AddAttributes(tab.StringAttribute("Attempt", fmt.Sprintf("%d", retrier.CurrentTry())))
 
-		err = links.recoverImpl(ctx, retrier.CurrentTry(), linksRevision, err)
+		sbe = links.recoverImpl(ctx, retrier.CurrentTry(), linksRevision, sbe)
 
-		if err == nil {
+		if sbe == nil {
 			return nil
+		}
+
+		if sbe.Fix == sberrors.FixNotPossible {
+			return sbe
 		}
 	}
 
-	return err
-}
-
-func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision uint64, origErr error) error {
-	_, span := tab.StartSpan(ctx, tracing.SpanRecoverLink)
-	defer span.End()
-
-	if origErr == nil || IsCancelError(origErr) {
+	if sbe == nil {
 		return nil
 	}
 
+	return sbe
+}
+
+func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision uint64, sbe *sberrors.ServiceBusError) *sberrors.ServiceBusError {
+	_, span := tab.StartSpan(ctx, tracing.SpanRecoverLink)
+	defer span.End()
+
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return sberrors.AsServiceBusError(ctx, ctx.Err())
 	default:
 	}
 
-	span.AddAttributes(tab.Int64Attribute("attempt", int64(try)))
+	span.AddAttributes(
+		tab.Int64Attribute("attempt", int64(try)),
+		tab.StringAttribute("error", sbe.Error()),
+		tab.StringAttribute("error_type", fmt.Sprintf("%T", sbe.Err)),
+	)
 
-	if shouldRecreateLink(origErr) {
+	switch sbe.Fix {
+	case sberrors.FixByRetrying:
+	case sberrors.FixNotPossible:
+		return sbe
+	case sberrors.FixByRecoveringLink:
 		span.AddAttributes(
 			tab.StringAttribute("recovery_kind", "link"),
-			tab.StringAttribute("error", origErr.Error()),
-			tab.StringAttribute("error_type", fmt.Sprintf("%T", origErr)))
+		)
 
 		if err := links.recoverLink(ctx, &linksRevision); err != nil {
 			span.AddAttributes(tab.StringAttribute("recoveryFailure", err.Error()))
@@ -228,11 +232,10 @@ func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision 
 		}
 
 		return nil
-	} else if shouldRecreateConnection(ctx, origErr) {
+	case sberrors.FixByRecoveringConnection:
 		span.AddAttributes(
 			tab.StringAttribute("recovery_kind", "connection"),
-			tab.StringAttribute("error", origErr.Error()),
-			tab.StringAttribute("error_type", fmt.Sprintf("%T", origErr)))
+		)
 
 		if err := links.recoverConnection(ctx); err != nil {
 			span.Logger().Error(fmt.Errorf("failed to recreate connection: %w", err))
@@ -249,14 +252,12 @@ func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision 
 	}
 
 	span.AddAttributes(
-		tab.StringAttribute("recovery", "none"),
-		tab.StringAttribute("error", origErr.Error()),
-		tab.StringAttribute("errorType", fmt.Sprintf("%T", origErr)))
+		tab.StringAttribute("recovery", "none"))
 
 	return nil
 }
 
-func (links *amqpLinks) recoverConnection(ctx context.Context) error {
+func (links *amqpLinks) recoverConnection(ctx context.Context) *sberrors.ServiceBusError {
 	tab.For(ctx).Info("Connection is dead, recovering")
 
 	links.mu.RLock()
@@ -281,7 +282,10 @@ func (l *amqpLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClie
 	l.mu.RUnlock()
 
 	if closedPermanently {
-		return nil, nil, nil, 0, errClosedPermanently{}
+		return nil, nil, nil, 0, sberrors.NewServiceBusError(
+			sberrors.FixNotPossible,
+			errors.New("links have been closed by the user"),
+		)
 	}
 
 	if sender != nil || receiver != nil {
@@ -324,7 +328,7 @@ func (l *amqpLinks) Close(ctx context.Context, permanent bool) error {
 }
 
 // initWithoutLocking will create a new link, unconditionally.
-func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
+func (l *amqpLinks) initWithoutLocking(ctx context.Context) *sberrors.ServiceBusError {
 	var err error
 	l.cancelAuthRefreshLink, err = l.ns.NegotiateClaim(ctx, l.entityPath)
 
@@ -332,7 +336,7 @@ func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after negotiateClaim: %s", err.Error()))
 		}
-		return err
+		return sberrors.AsServiceBusError(ctx, err)
 	}
 
 	l.cancelAuthRefreshMgmtLink, err = l.ns.NegotiateClaim(ctx, l.managementPath)
@@ -341,7 +345,8 @@ func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after negotiate claim for mgmt link: %s", err.Error()))
 		}
-		return err
+
+		return sberrors.AsServiceBusError(ctx, err)
 	}
 
 	l.session, l.clientRevision, err = l.ns.NewAMQPSession(ctx)
@@ -350,7 +355,7 @@ func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after creating AMQP session: %s", err.Error()))
 		}
-		return err
+		return sberrors.AsServiceBusError(ctx, err)
 	}
 
 	l.sender, l.receiver, err = l.createLink(ctx, l.session)
@@ -359,7 +364,7 @@ func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after creating link: %s", err.Error()))
 		}
-		return err
+		return sberrors.AsServiceBusError(ctx, err)
 	}
 
 	l.mgmt, err = l.ns.NewMgmtClient(ctx, l)
@@ -368,7 +373,7 @@ func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after creating mgmt client: %s", err.Error()))
 		}
-		return err
+		return sberrors.AsServiceBusError(ctx, err)
 	}
 
 	return nil

@@ -19,6 +19,7 @@ import (
 	"github.com/Azure/azure-amqp-common-go/v3/rpc"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sbauth"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/tracing"
 	"github.com/Azure/go-amqp"
 	"github.com/Azure/go-autorest/autorest/azure"
@@ -66,7 +67,7 @@ type NamespaceForAMQPLinks interface {
 	NewAMQPSession(ctx context.Context) (AMQPSessionCloser, uint64, error)
 	NewMgmtClient(ctx context.Context, links AMQPLinks) (MgmtClient, error)
 	GetEntityAudience(entityPath string) string
-	Recover(ctx context.Context, clientRevision uint64) error
+	Recover(ctx context.Context, clientRevision uint64) *sberrors.ServiceBusError
 }
 
 // NamespaceForAMQPLinks is the Namespace surface needed for the *MgmtClient.
@@ -277,7 +278,7 @@ func (ns *Namespace) Close(ctx context.Context) error {
 
 // Recover destroys the currently held client and recreates it.
 // clientRevision being nil will recover without a revision check.
-func (ns *Namespace) Recover(ctx context.Context, clientRevision uint64) error {
+func (ns *Namespace) Recover(ctx context.Context, clientRevision uint64) *sberrors.ServiceBusError {
 	ns.clientMu.Lock()
 	defer ns.clientMu.Unlock()
 
@@ -313,9 +314,10 @@ func (ns *Namespace) Recover(ctx context.Context, clientRevision uint64) error {
 	if err == nil {
 		span.AddAttributes(tab.Int64Attribute("newcr", int64(ns.clientRevision)))
 		ns.clientRevision++
+		return nil
 	}
 
-	return err
+	return sberrors.AsServiceBusError(ctx, err)
 }
 
 // negotiateClaim performs initial authentication and starts periodic refresh of credentials.
@@ -368,7 +370,9 @@ func (ns *Namespace) startNegotiateClaimRenewer(ctx context.Context,
 				ns.negotiateClaimMu.Unlock()
 
 				if err != nil {
-					if shouldRecreateConnection(ctx, err) {
+					sbe := sberrors.AsServiceBusError(ctx, err)
+
+					if sbe.Fix == sberrors.FixByRecoveringConnection {
 						if err := ns.Recover(ctx, clientRevision); err != nil {
 							span.Logger().Error(fmt.Errorf("connection recovery failed: %w", err))
 						}

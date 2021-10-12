@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-package internal
+package sberrors
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"testing"
 
+	common "github.com/Azure/azure-amqp-common-go/v3"
 	"github.com/Azure/go-amqp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,6 +67,15 @@ func TestErrIncorrectType_Error(t *testing.T) {
 		})
 	}
 }
+
+type permanentNetError struct {
+	temp    bool
+	timeout bool
+}
+
+func (pe permanentNetError) Timeout() bool   { return pe.timeout }
+func (pe permanentNetError) Temporary() bool { return pe.temp }
+func (pe permanentNetError) Error() string   { return "Fake but very permanent error" }
 
 func TestErrNotFound_Error(t *testing.T) {
 	err := ErrNotFound{EntityPath: "/foo/bar"}
@@ -166,4 +176,19 @@ func Test_IsCancelError(t *testing.T) {
 	require.True(t, IsCancelError(context.DeadlineExceeded))
 	require.True(t, IsCancelError(fmt.Errorf("wrapped: %w", context.Canceled)))
 	require.True(t, IsCancelError(fmt.Errorf("wrapped: %w", context.DeadlineExceeded)))
+}
+
+func TestNewServiceBusError(t *testing.T) {
+	sbe := AsServiceBusError(context.Background(), amqp.ErrConnClosed)
+	require.EqualValues(t, FixByRecoveringConnection, sbe.Fix)
+
+	sbe = AsServiceBusError(context.Background(), amqp.ErrLinkDetached)
+	require.EqualValues(t, FixByRecoveringLink, sbe.Fix)
+
+	// check `newServiceBusErrorFromAMQPCommon` for an explanation about why we have to handle
+	// these stringized errors.
+	sbe = AsServiceBusError(context.Background(),
+		common.Retryable("unhandled error link ef694da5-411b-4b3c-a586-4f060a564968: status code  410 and description: The lock supplied is invalid. Either the lock expired, or the message has already been removed from the queue. Reference:35361e4c-1403-487a-826f-69f21e1654b2, TrackingId:5598ae0d-6fab-4e40-9712-ac0fc411af12_B2, SystemTracker:riparkdev2:Queue:queue-16ac1f8180646f48, Timestamp:2021-10-08T17:50:01"),
+	)
+	require.EqualValues(t, FixNotPossible, sbe.Fix, "Recovery can't make the lock valid again")
 }

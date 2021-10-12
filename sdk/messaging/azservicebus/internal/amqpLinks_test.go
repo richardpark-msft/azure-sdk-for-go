@@ -8,6 +8,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 	"github.com/Azure/go-amqp"
 	"github.com/stretchr/testify/require"
 )
@@ -75,8 +76,7 @@ func TestAMQPLinks(t *testing.T) {
 	require.Nil(t, mgmt)
 	require.EqualValues(t, 0, linkRevision)
 
-	_, ok = err.(NonRetriable)
-	require.True(t, ok)
+	require.EqualValues(t, sberrors.FixNotPossible, sberrors.AsServiceBusError(context.Background(), err).Fix)
 }
 
 type permanentNetError struct {
@@ -177,7 +177,8 @@ func TestAMQPLinks_Closed(t *testing.T) {
 
 	_, _, _, _, err := links.Get(context.Background())
 
-	require.True(t, IsNonRetriable(err))
+	sbe := sberrors.AsServiceBusError(context.Background(), err)
+	require.EqualValues(t, sberrors.FixNotPossible, sbe.Fix)
 }
 
 func setupCreateLinkResponses(t *testing.T, responses []createLinkResponse) (CreateLinkFunc, *int) {

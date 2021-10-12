@@ -12,6 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
+	"github.com/devigned/tab"
 	"github.com/stretchr/testify/require"
 )
 
@@ -157,6 +161,54 @@ func TestProcessorReceiveWith100MessagesWithMaxConcurrency(t *testing.T) {
 	require.NoError(t, processor.Close(ctx))
 }
 
+func TestProcessorReceiveWithLockRenewal(t *testing.T) {
+	duration := internal.DurationTo8601Seconds(10 * time.Second)
+
+	serviceBusClient, cleanup, queueName := setupLiveTest(t, &internal.QueueDescription{
+		LockDuration: &duration,
+	})
+	defer cleanup()
+
+	sender, err := serviceBusClient.NewSender(queueName)
+	require.NoError(t, err)
+
+	err = sender.SendMessage(context.Background(), &Message{
+		Body: []byte("hello world"),
+	})
+	require.NoError(t, err)
+
+	tab.Register(&utils.StderrTracer{
+		Include: map[string]bool{
+			// internal.SpanProcessorClose: true,
+			// internal.SpanProcessorLoop:  true,
+			// internal.SpanNegotiateClaim: true,
+			// internal.SpanRecover:        true,
+			// internal.SpanRecoverLink:    true,
+			// internal.SpanRecoverClient:  true,
+			internal.SpanRenewMessage: true,
+		},
+	})
+
+	processor, err := serviceBusClient.NewProcessorForQueue(queueName, nil)
+	require.NoError(t, err)
+
+	err = processor.Start(context.Background(), func(message *ReceivedMessage) error {
+		// sleep long enough that our message should have expired (since we set our queue lock time so low)
+		time.Sleep(15 * time.Second)
+
+		err := processor.CompleteMessage(context.Background(), message)
+		require.NoError(t, err)
+
+		go processor.Close(context.Background())
+
+		return nil
+	}, func(err error) {
+		require.NoError(t, err)
+	})
+
+	require.NoError(t, err)
+}
+
 func TestProcessorUnitTests(t *testing.T) {
 	p := &Processor{}
 	e := &entity{}
@@ -174,7 +226,7 @@ func TestProcessorUnitTests(t *testing.T) {
 	require.NoError(t, applyProcessorOptions(p, e, &ProcessorOptions{
 		ReceiveMode:        ReceiveAndDelete,
 		SubQueue:           SubQueueDeadLetter,
-		ManualComplete:     true,
+		AutoComplete:       to.BoolPtr(false),
 		MaxConcurrentCalls: 101,
 	}))
 

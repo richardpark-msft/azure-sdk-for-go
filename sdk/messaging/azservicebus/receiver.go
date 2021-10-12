@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
 )
@@ -214,10 +215,10 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 		return nil, err
 	}
 
-	messages, err := r.getMessages(ctx, receiver, maxMessages, localOpts)
+	messages, sbErr := r.getMessages(ctx, receiver, maxMessages, localOpts)
 
-	if err != nil {
-		return nil, err
+	if sbErr != nil {
+		return nil, sbErr
 	}
 
 	if len(messages) == maxMessages {
@@ -251,31 +252,41 @@ func (r *Receiver) drainLink(receiver internal.AMQPReceiver, messages []*Receive
 	// our context.
 	// NOTE: That's a gap here where we need to be able to drain _only_ the internally cached messages
 	// in the receiver. Filed as https://github.com/Azure/go-amqp/issues/71
+	var sbe *sberrors.ServiceBusError
+
 	for {
 		am, err := receiver.Receive(receiveCtx)
 
-		if internal.IsCancelError(err) {
+		if err != nil {
+			sbe = sberrors.AsServiceBusError(receiveCtx, err)
 			break
-		} else if err != nil {
-			// something fatal happened, we will just
-			_ = r.amqpLinks.Close(context.TODO(), false)
-
-			if len(messages) > 0 {
-				return messages, nil
-			} else {
-				return nil, err
-			}
 		}
 
 		messages = append(messages, newReceivedMessage(receiveCtx, am))
 	}
 
-	return messages, nil
+	if sbe == nil {
+		return messages, nil
+	}
+
+	// TODO: I'm bucketing connection recovery into here, but I'm not actually sure if you can settle
+	// on the management link if you open a brand new connection.
+	if sbe.Fix == sberrors.FixByRecoveringConnection || sbe.Fix == sberrors.FixByRecoveringLink {
+		// this will be for the next call to Receive() to fix (this avoids the user potentially not getting their
+		// messages while we're doing the recovery)
+		_ = r.amqpLinks.Close(context.TODO(), false)
+	}
+
+	if len(messages) > 0 {
+		return messages, nil
+	} else {
+		return nil, sbe
+	}
 }
 
 // getMessages receives messages until a link failure, timeout or the user
 // cancels their context.
-func (r *Receiver) getMessages(theirCtx context.Context, receiver internal.AMQPReceiver, maxMessages int, ropts *ReceiveOptions) ([]*ReceivedMessage, error) {
+func (r *Receiver) getMessages(theirCtx context.Context, receiver internal.AMQPReceiver, maxMessages int, ropts *ReceiveOptions) ([]*ReceivedMessage, *sberrors.ServiceBusError) {
 	ctx, cancel := context.WithTimeout(theirCtx, ropts.MaxWaitTime)
 	defer cancel()
 
@@ -285,35 +296,41 @@ func (r *Receiver) getMessages(theirCtx context.Context, receiver internal.AMQPR
 		var amqpMessage *amqp.Message
 		amqpMessage, err := receiver.Receive(ctx)
 
-		if err != nil {
-			if internal.IsCancelError(err) {
+		if err == nil {
+			messages = append(messages, newReceivedMessage(ctx, amqpMessage))
+
+			if len(messages) == maxMessages {
 				return messages, nil
 			}
 
+			if len(messages) == 1 {
+				go func() {
+					select {
+					case <-time.After(ropts.maxWaitTimeAfterFirstMessage):
+						cancel()
+					case <-ctx.Done():
+						break
+					}
+				}()
+			}
+
+			continue
+		}
+
+		sbe := sberrors.AsServiceBusError(ctx, err)
+
+		if sbe.Fix == sberrors.FixNotPossible {
+			return nil, sbe
+		}
+
+		if sbe.Fix == sberrors.FixByRecoveringConnection || sbe.Fix == sberrors.FixByRecoveringLink {
 			// we'll close (instead of recovering) since we are holding onto messages
 			// and want to get them back to the user ASAP. (recovery will just happen
 			// on the next call to receive)
 			if err := r.amqpLinks.Close(context.Background(), false); err != nil {
 				tab.For(ctx).Debug(fmt.Sprintf("Failed to close links on ReceiveMessages cleanup. Not fatal: %s", err.Error()))
 			}
-			return nil, err
-		}
-
-		messages = append(messages, newReceivedMessage(ctx, amqpMessage))
-
-		if len(messages) == maxMessages {
-			return messages, nil
-		}
-
-		if len(messages) == 1 {
-			go func() {
-				select {
-				case <-time.After(ropts.maxWaitTimeAfterFirstMessage):
-					cancel()
-				case <-ctx.Done():
-					break
-				}
-			}()
+			return nil, sbe
 		}
 	}
 }

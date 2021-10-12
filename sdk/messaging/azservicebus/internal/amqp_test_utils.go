@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/Azure/azure-amqp-common-go/v3/rpc"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 )
 
 type FakeNS struct {
@@ -125,7 +126,7 @@ func (ns *FakeNS) NewRPCLink(ctx context.Context, managementPath string) (*rpc.L
 	return ns.RPCLink, nil
 }
 
-func (ns *FakeNS) Recover(ctx context.Context, clientRevision uint64) error {
+func (ns *FakeNS) Recover(ctx context.Context, clientRevision uint64) *sberrors.ServiceBusError {
 	ns.clientRevisions = append(ns.clientRevisions, clientRevision)
 	ns.recovered++
 	return nil

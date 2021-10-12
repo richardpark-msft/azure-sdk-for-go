@@ -40,7 +40,6 @@ func TestRetrier(t *testing.T) {
 		// and it's the 6th retry that fails since we've exhausted
 		// the retries we're allotted.
 		require.False(retrier.Try(context.Background()))
-		require.True(retrier.Exhausted())
 	})
 
 	t.Run("Cancellation", func(t *testing.T) {

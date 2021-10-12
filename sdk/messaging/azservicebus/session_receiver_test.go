@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sberrors"
 	"github.com/Azure/go-amqp"
 	"github.com/stretchr/testify/require"
 )
@@ -94,7 +95,7 @@ func TestSessionReceiver_acceptSessionButAlreadyLocked(t *testing.T) {
 	// You can address a session by name which makes lock contention possible (unlike
 	// messages where the lock token is not a predefined value)
 	receiver, err = client.AcceptSessionForQueue(ctx, queueName, "session-1", nil)
-	require.True(t, internal.IsSessionLockedError(err))
+	require.True(t, sberrors.IsSessionLockedError(err))
 	require.Nil(t, receiver)
 }
 

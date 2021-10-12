@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-package internal
+package sberrors
 
 import (
 	"context"
@@ -11,24 +11,11 @@ import (
 	"net"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/Azure/azure-amqp-common-go/v3/rpc"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
 )
-
-type NonRetriable interface {
-	error
-	NonRetriable()
-}
-
-// IsNonRetriable indicates an error is fatal. Typically, this means
-// the connection or link has been closed.
-func IsNonRetriable(err error) bool {
-	var nonRetriable NonRetriable
-	return errors.As(err, &nonRetriable)
-}
 
 // Error Conditions
 const (
@@ -37,11 +24,6 @@ const (
 	errorTimeout            amqp.ErrorCondition = "com.microsoft:timeout"
 	errorOperationCancelled amqp.ErrorCondition = "com.microsoft:operation-cancelled"
 	errorContainerClose     amqp.ErrorCondition = "com.microsoft:container-close"
-)
-
-const (
-	amqpRetryDefaultTimes int           = 3
-	amqpRetryDefaultDelay time.Duration = time.Second
 )
 
 type (
@@ -240,4 +222,121 @@ func IsSessionLockedError(err error) bool {
 	//{Condition: com.microsoft:session-cannot-be-locked, Description: The requested session 'session-1' cannot be accepted. It may be locked by another receiver.
 
 	return amqpError.Condition == "com.microsoft:session-cannot-be-locked"
+}
+
+type FixBy int
+
+const (
+	// FixByRecoveringConnection being true means you need to recreate the connection before this
+	// operation could succeed. This implies that NeedsNewLink is also true, and should be checked
+	// first.
+	FixByRecoveringConnection FixBy = 1
+
+	// FixByRecoveringLink means you need to recreate the link before this operation could succeed.
+	// (typically as a result of a detach)
+	FixByRecoveringLink FixBy = 2
+
+	// RecoverNotPossible means the operation can be retried without any form of recovery.
+	FixByRetrying FixBy = 3
+
+	// FixNotPossible means the operation should not be retried.
+	FixNotPossible FixBy = 4
+)
+
+type ServiceBusError struct {
+	Fix FixBy
+	Err error
+}
+
+func NewServiceBusError(fix FixBy, err error) *ServiceBusError {
+	if err == nil {
+		panic("Nil error passed to ServiceBusError")
+	}
+
+	return &ServiceBusError{fix, err}
+}
+
+func (e *ServiceBusError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *ServiceBusError) Unwrap() error {
+	return e.Err
+}
+
+func AsServiceBusError(ctxForLogging context.Context, err error) *ServiceBusError {
+	asSBE, ok := err.(*ServiceBusError)
+
+	if ok {
+		return asSBE
+	}
+
+	if IsCancelError(err) {
+		return NewServiceBusError(FixNotPossible, err)
+	}
+
+	/*
+		The underlying call (doRPCWithRetry) from amqp-common-go stringizes the
+		error that comes back in the response, so we can't access it programatically
+		 https://github.com/Azure/azure-amqp-common-go/issues/59
+
+		unhandled error link ef694da5-411b-4b3c-a586-4f060a564968: status code 410 and description: The lock supplied is invalid. Either the lock expired, or the message has already been removed from the queue. Reference:35361e4c-1403-487a-826f-69f21e1654b2, TrackingId:5598ae0d-6fab-4e40-9712-ac0fc411af12_B2, SystemTracker:riparkdev2:Queue:queue-16ac1f8180646f48, Timestamp:2021-10-08T17:50:01
+	*/
+	if strings.Contains(err.Error(), "status code 410 ") {
+		return NewServiceBusError(
+			FixNotPossible,
+			err,
+		)
+	}
+
+	// proper AMQP code, as received from go-amqp via the receiver.
+	var amqpError *amqp.Error
+	if errors.As(err, &amqpError) && amqpError.Condition == "com.microsoft:message-lock-lost" {
+		return NewServiceBusError(
+			FixNotPossible,
+			err,
+		)
+	}
+
+	if shouldRecreateConnection(ctxForLogging, err) {
+		return NewServiceBusError(
+			FixByRecoveringConnection,
+			err,
+		)
+	}
+
+	if shouldRecreateLink(err) {
+		return NewServiceBusError(
+			FixByRecoveringLink,
+			err,
+		)
+	}
+
+	// TODO: it'd be nice to get more crisp on this (for instance, if we get a throttling error)
+	return NewServiceBusError(
+		FixByRetrying,
+		err,
+	)
+}
+
+// returns true if the AMQP error is considered transient
+func IsAMQPTransientError(ctx context.Context, err error) bool {
+	// always retry on a detach error
+	var amqpDetach *amqp.DetachError
+	if errors.As(err, &amqpDetach) {
+		return true
+	}
+	// for an AMQP error, only retry depending on the condition
+	var amqpErr *amqp.Error
+	if errors.As(err, &amqpErr) {
+		switch amqpErr.Condition {
+		case errorServerBusy, errorTimeout, errorOperationCancelled, errorContainerClose:
+			return true
+		default:
+			tab.For(ctx).Debug(fmt.Sprintf("isAMQPTransientError: condition %s is not transient", amqpErr.Condition))
+			return false
+		}
+	}
+	tab.For(ctx).Debug(fmt.Sprintf("isAMQPTransientError: %T is not transient", err))
+	return false
 }
