@@ -57,7 +57,7 @@ func newSessionReceiver(sessionID *string, ns internal.NamespaceWithNewAMQPLinks
 	var err error
 
 	sessionReceiver.Receiver, err = newReceiver(ns, entity, cleanupOnClose, options, func(ctx context.Context, session internal.AMQPSession) (internal.AMQPSenderCloser, internal.AMQPReceiverCloser, error) {
-		linkOptions := createLinkOptions(sessionReceiver.Receiver.receiveMode, sessionReceiver.amqpLinks.EntityPath())
+		linkOptions := createLinkOptions(sessionReceiver.Receiver.receiveMode, sessionReceiver.AmqpLinks.EntityPath())
 
 		if sessionID == nil {
 			linkOptions = append(linkOptions, amqp.LinkSourceFilter(sessionFilterName, code, nil))
@@ -101,6 +101,6 @@ func (sr *SessionReceiver) SessionID() string {
 // init ensures the link was created, guaranteeing that we get our expected session lock.
 func (sr *SessionReceiver) init(ctx context.Context) error {
 	// initialize the links
-	_, _, _, _, err := sr.amqpLinks.Get(ctx)
+	_, _, _, _, err := sr.AmqpLinks.Get(ctx)
 	return err
 }

@@ -51,7 +51,7 @@ type Receiver struct {
 	cleanupOnClose func()
 
 	lastPeekedSequenceNumber int64
-	amqpLinks                internal.AMQPLinks
+	AmqpLinks                internal.AMQPLinks
 
 	mu        sync.Mutex
 	receiving bool
@@ -131,11 +131,11 @@ func newReceiver(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanupO
 		}
 	}
 
-	receiver.amqpLinks = ns.NewAMQPLinks(entityPath, newLinksFn)
+	receiver.AmqpLinks = ns.NewAMQPLinks(entityPath, newLinksFn)
 
 	// 'nil' settler handles returning an error message for receiveAndDelete links.
 	if receiver.receiveMode == PeekLock {
-		receiver.settler = newMessageSettler(receiver.amqpLinks, receiver.baseRetrier)
+		receiver.settler = newMessageSettler(receiver.AmqpLinks, receiver.baseRetrier)
 	}
 
 	return receiver, nil
@@ -199,10 +199,10 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 		}
 	}
 
-	_, receiver, _, linksRevision, err := r.amqpLinks.Get(ctx)
+	_, receiver, _, linksRevision, err := r.AmqpLinks.Get(ctx)
 
 	if err != nil {
-		if err := r.amqpLinks.RecoverIfNeeded(ctx, linksRevision, err); err != nil {
+		if err := r.AmqpLinks.RecoverIfNeeded(ctx, linksRevision, err); err != nil {
 			return nil, err
 		}
 
@@ -210,7 +210,7 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 	}
 
 	if err := receiver.IssueCredit(uint32(maxMessages)); err != nil {
-		_ = r.amqpLinks.RecoverIfNeeded(ctx, linksRevision, err)
+		_ = r.AmqpLinks.RecoverIfNeeded(ctx, linksRevision, err)
 		return nil, err
 	}
 
@@ -225,6 +225,7 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 		return messages, nil
 	}
 
+	fmt.Printf("Draining receiver (received %d out of %d)...\n", len(messages), maxMessages)
 	return r.drainLink(receiver, messages)
 }
 
@@ -240,7 +241,7 @@ func (r *Receiver) drainLink(receiver internal.AMQPReceiver, messages []*Receive
 			tab.For(receiveCtx).Debug(fmt.Sprintf("Draining of credit failed. link will be closed and will re-open on next receive: %s", err.Error()))
 
 			// if the drain fails we just close the link so it'll re-open at the next receive.
-			if err := r.amqpLinks.Close(context.Background(), false); err != nil {
+			if err := r.AmqpLinks.Close(context.Background(), false); err != nil {
 				tab.For(receiveCtx).Debug(fmt.Sprintf("Failed to close links on ReceiveMessages cleanup. Not fatal: %s", err.Error()))
 			}
 		}
@@ -258,7 +259,7 @@ func (r *Receiver) drainLink(receiver internal.AMQPReceiver, messages []*Receive
 			break
 		} else if err != nil {
 			// something fatal happened, we will just
-			_ = r.amqpLinks.Close(context.TODO(), false)
+			_ = r.AmqpLinks.Close(context.TODO(), false)
 
 			if len(messages) > 0 {
 				return messages, nil
@@ -293,7 +294,7 @@ func (r *Receiver) getMessages(theirCtx context.Context, receiver internal.AMQPR
 			// we'll close (instead of recovering) since we are holding onto messages
 			// and want to get them back to the user ASAP. (recovery will just happen
 			// on the next call to receive)
-			if err := r.amqpLinks.Close(context.Background(), false); err != nil {
+			if err := r.AmqpLinks.Close(context.Background(), false); err != nil {
 				tab.For(ctx).Debug(fmt.Sprintf("Failed to close links on ReceiveMessages cleanup. Not fatal: %s", err.Error()))
 			}
 			return nil, err
@@ -320,7 +321,7 @@ func (r *Receiver) getMessages(theirCtx context.Context, receiver internal.AMQPR
 
 // ReceiveDeferredMessages receives messages that were deferred using `Receiver.DeferMessage`.
 func (r *Receiver) ReceiveDeferredMessages(ctx context.Context, sequenceNumbers []int64) ([]*ReceivedMessage, error) {
-	_, _, mgmt, _, err := r.amqpLinks.Get(ctx)
+	_, _, mgmt, _, err := r.AmqpLinks.Get(ctx)
 
 	if err != nil {
 		return nil, err
@@ -356,7 +357,7 @@ type PeekOptions struct {
 // like CompleteMessage, AbandonMessage, DeferMessage or DeadLetterMessage
 // will not work with them.
 func (r *Receiver) PeekMessages(ctx context.Context, maxMessageCount int, options *PeekOptions) ([]*ReceivedMessage, error) {
-	_, _, mgmt, _, err := r.amqpLinks.Get(ctx)
+	_, _, mgmt, _, err := r.AmqpLinks.Get(ctx)
 
 	if err != nil {
 		return nil, err
@@ -423,7 +424,7 @@ func (r *Receiver) ReceiveMessage(ctx context.Context, options *ReceiveOptions) 
 // Close permanently closes the receiver.
 func (r *Receiver) Close(ctx context.Context) error {
 	r.cleanupOnClose()
-	return r.amqpLinks.Close(ctx, true)
+	return r.AmqpLinks.Close(ctx, true)
 }
 
 // CompleteMessage completes a message, deleting it from the queue or subscription.
