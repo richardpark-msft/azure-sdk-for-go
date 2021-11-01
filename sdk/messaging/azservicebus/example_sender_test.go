@@ -77,8 +77,8 @@ func ExampleSender_ScheduleMessages() {
 	future := time.Now().Add(time.Hour)
 
 	err = sender.SendMessages(context.TODO(),
-		[]*azservicebus.Message{
-			{
+		[]azservicebus.SendableMessage{
+			&azservicebus.Message{
 				Body: []byte("hello world"),
 				// schedule the message to be delivered in an hour.
 				ScheduledEnqueueTime: &future,

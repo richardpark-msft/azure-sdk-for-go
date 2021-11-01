@@ -93,7 +93,7 @@ func (s *Sender) SendMessageBatch(ctx context.Context, batch *MessageBatch) erro
 
 // SendMessages sends messages to a queue or topic, using a single MessageBatch.
 // If the messages cannot fit into a single MessageBatch this function will fail.
-func (s *Sender) SendMessages(ctx context.Context, messages []*Message) error {
+func (s *Sender) SendMessages(ctx context.Context, messages []SendableMessage) error {
 	batch, err := s.NewMessageBatch(ctx, nil)
 
 	if err != nil {
