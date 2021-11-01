@@ -58,7 +58,6 @@ type (
 		ScheduledEnqueueTime    *time.Time
 
 		ApplicationProperties map[string]interface{}
-		Format                uint32
 	}
 )
 
@@ -286,7 +285,6 @@ func newReceivedMessage(ctxForLogging context.Context, amqpMsg *amqp.Message) *R
 		}
 	}
 
-	msg.Format = amqpMsg.Format
 	return msg
 }
 
