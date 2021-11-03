@@ -142,7 +142,7 @@ func newReceiver(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanupO
 
 // ReceiveOptions are options for the ReceiveMessages function.
 type ReceiveOptions struct {
-	maxWaitTimeAfterFirstMessage time.Duration
+	// placeholder for future optional parameters
 }
 
 // ReceiveMessages receives a fixed number of messages, up to numMessages.
@@ -334,7 +334,7 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 	//    link is still valid.
 	// Phase 3. <drain the link and leave it in a good state>
 	localOpts := &ReceiveOptions{
-		maxWaitTimeAfterFirstMessage: time.Second,
+		maxWaitTimeAfterFirstMessage: 20 * time.Millisecond,
 	}
 
 	if options != nil {
