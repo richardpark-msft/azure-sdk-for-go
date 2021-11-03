@@ -140,10 +140,10 @@ func newReceiver(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanupO
 	return receiver, nil
 }
 
-// ReceiveMessages receives a fixed number of messages, up to numMessages.
-// There are two ways to stop receiving messages:
-// 1. Cancelling the `ctx` parameter.
-// 2. An implicit timeout that starts after the first message has been received.
+// ReceiveMessages receives a fixed number of messages.
+// This function will receive, at most, `maxMessages`. It will return if all messages
+// requested have been received, if the context that is passed in via `ctx` is cancelled
+// or after the first message is received (with a slight delay).
 func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int) ([]*ReceivedMessage, error) {
 	r.mu.Lock()
 	isReceiving := r.receiving
