@@ -35,7 +35,7 @@ func TestSessionReceiver_acceptSession(t *testing.T) {
 	receiver, err := client.AcceptSessionForQueue(ctx, queueName, "session-1", nil)
 	require.NoError(t, err)
 
-	msg, err := receiver.inner.receiveMessage(ctx, nil)
+	msg, err := receiver.inner.receiveMessage(ctx)
 	require.NoError(t, err)
 
 	require.EqualValues(t, "session-based message", msg.Body)
@@ -78,7 +78,7 @@ func TestSessionReceiver_blankSessionIDs(t *testing.T) {
 	receiver, err := client.AcceptSessionForQueue(ctx, queueName, "", nil)
 	require.NoError(t, err)
 
-	msg, err := receiver.inner.receiveMessage(ctx, nil)
+	msg, err := receiver.inner.receiveMessage(ctx)
 	require.NoError(t, err)
 
 	require.EqualValues(t, "session-based message", msg.Body)
@@ -129,7 +129,7 @@ func TestSessionReceiver_acceptNextSession(t *testing.T) {
 	receiver, err := client.AcceptNextSessionForQueue(ctx, queueName, nil)
 	require.NoError(t, err)
 
-	msg, err := receiver.inner.receiveMessage(ctx, nil)
+	msg, err := receiver.inner.receiveMessage(ctx)
 	require.NoError(t, err)
 
 	require.EqualValues(t, "session-based message", msg.Body)
@@ -185,7 +185,7 @@ func TestSessionReceiver_nonSessionReceiver(t *testing.T) {
 
 	// normal receivers are lazy initialized so we need to do _something_ to make sure
 	// the link gets spun up (and thus fails)
-	message, err := receiver.receiveMessage(context.Background(), nil)
+	message, err := receiver.receiveMessage(context.Background())
 	require.Nil(t, message)
 
 	var amqpError *amqp.Error
@@ -219,7 +219,7 @@ func TestSessionReceiver_RenewSessionLock(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	messages, err := sessionReceiver.ReceiveMessages(context.Background(), 1, nil)
+	messages, err := sessionReceiver.ReceiveMessages(context.Background(), 1)
 	require.NoError(t, err)
 	require.NotNil(t, messages)
 

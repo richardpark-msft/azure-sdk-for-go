@@ -13,7 +13,7 @@ func ExampleClient_AcceptSessionForQueue() {
 	exitOnError("Failed to create session receiver", err)
 
 	// session receivers function the same as any other receiver
-	messages, err := sessionReceiver.ReceiveMessages(context.TODO(), 5, nil)
+	messages, err := sessionReceiver.ReceiveMessages(context.TODO(), 5)
 	exitOnError("Failed to receive a message", err)
 
 	for _, message := range messages {

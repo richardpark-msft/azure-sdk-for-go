@@ -34,7 +34,7 @@ func TestReceiverSendFiveReceiveFive(t *testing.T) {
 	receiver, err := serviceBusClient.NewReceiverForQueue(queueName, nil)
 	require.NoError(t, err)
 
-	messages, err := receiver.ReceiveMessages(context.Background(), 5, nil)
+	messages, err := receiver.ReceiveMessages(context.Background(), 5)
 	require.NoError(t, err)
 
 	sort.Sort(receivedMessageSlice(messages))
@@ -69,7 +69,7 @@ func TestReceiverForceTimeoutWithTooFewMessages(t *testing.T) {
 	// there's only one message, requesting more messages will time out.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	messages, err := receiver.ReceiveMessages(ctx, 1+1, nil)
+	messages, err := receiver.ReceiveMessages(ctx, 1+1)
 	require.NoError(t, err)
 
 	require.EqualValues(t,
@@ -95,14 +95,14 @@ func TestReceiverAbandon(t *testing.T) {
 	receiver, err := serviceBusClient.NewReceiverForQueue(queueName, nil)
 	require.NoError(t, err)
 
-	messages, err := receiver.ReceiveMessages(context.Background(), 1, nil)
+	messages, err := receiver.ReceiveMessages(context.Background(), 1)
 
 	require.NoError(t, err)
 	require.EqualValues(t, 1, len(messages))
 
 	require.NoError(t, receiver.AbandonMessage(context.Background(), messages[0]))
 
-	abandonedMessages, err := receiver.ReceiveMessages(context.Background(), 1, nil)
+	abandonedMessages, err := receiver.ReceiveMessages(context.Background(), 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, len(abandonedMessages))
 
@@ -132,11 +132,7 @@ func TestReceiveWithEarlyFirstMessageTimeout(t *testing.T) {
 	defer cancel()
 
 	startTime := time.Now()
-	messages, err := receiver.ReceiveMessages(ctx, 1,
-		&ReceiveOptions{
-			maxWaitTimeAfterFirstMessage: time.Millisecond,
-		})
-
+	messages, err := receiver.ReceiveMessages(ctx, 1)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, len(messages))
 
@@ -169,7 +165,7 @@ func TestReceiverSendAndReceiveManyTimes(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		messages, err := receiver.ReceiveMessages(ctx, 1, nil)
+		messages, err := receiver.ReceiveMessages(ctx, 1)
 		require.NoError(t, err)
 		allMessages = append(allMessages, messages...)
 
@@ -202,7 +198,7 @@ func TestReceiverDeferAndReceiveDeferredMessages(t *testing.T) {
 	receiver, err := client.NewReceiverForQueue(queueName, nil)
 	require.NoError(t, err)
 
-	messages, err := receiver.ReceiveMessages(ctx, 1, nil)
+	messages, err := receiver.ReceiveMessages(ctx, 1)
 	require.NoError(t, err)
 
 	var sequenceNumbers []int64
@@ -256,7 +252,7 @@ func TestReceiverPeek(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for a message to show up
-	messages, err := receiver.ReceiveMessages(ctx, 1, nil)
+	messages, err := receiver.ReceiveMessages(ctx, 1)
 	require.NoError(t, err)
 
 	// put them all back
@@ -309,7 +305,7 @@ func TestReceiver_RenewMessageLock(t *testing.T) {
 	receiver, err := client.NewReceiverForQueue(queueName, nil)
 	require.NoError(t, err)
 
-	messages, err := receiver.ReceiveMessages(context.Background(), 1, nil)
+	messages, err := receiver.ReceiveMessages(context.Background(), 1)
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Second)

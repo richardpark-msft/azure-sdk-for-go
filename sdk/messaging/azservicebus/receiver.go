@@ -140,17 +140,11 @@ func newReceiver(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanupO
 	return receiver, nil
 }
 
-// ReceiveOptions are options for the ReceiveMessages function.
-type ReceiveOptions struct {
-	// placeholder for future optional parameters
-}
-
 // ReceiveMessages receives a fixed number of messages, up to numMessages.
 // There are two ways to stop receiving messages:
 // 1. Cancelling the `ctx` parameter.
-// 2. An implicit timeout (default: 1 second) that starts after the first
-//    message has been received.
-func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options *ReceiveOptions) ([]*ReceivedMessage, error) {
+// 2. An implicit timeout that starts after the first message has been received.
+func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int) ([]*ReceivedMessage, error) {
 	r.mu.Lock()
 	isReceiving := r.receiving
 
@@ -169,7 +163,7 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 		return nil, errors.New("receiver is already receiving messages. ReceiveMessages() cannot be called concurrently")
 	}
 
-	return r.receiveMessagesImpl(ctx, maxMessages, options)
+	return r.receiveMessagesImpl(ctx, maxMessages)
 }
 
 // ReceiveDeferredMessages receives messages that were deferred using `Receiver.DeferMessage`.
@@ -311,8 +305,8 @@ func (r *Receiver) receiveDeferredMessage(ctx context.Context, sequenceNumber in
 }
 
 // receiveMessage receives a single message, waiting up to `ReceiveOptions.MaxWaitTime` (default: 60 seconds)
-func (r *Receiver) receiveMessage(ctx context.Context, options *ReceiveOptions) (*ReceivedMessage, error) {
-	messages, err := r.ReceiveMessages(ctx, 1, options)
+func (r *Receiver) receiveMessage(ctx context.Context) (*ReceivedMessage, error) {
+	messages, err := r.ReceiveMessages(ctx, 1)
 
 	if err != nil {
 		return nil, err
@@ -325,7 +319,7 @@ func (r *Receiver) receiveMessage(ctx context.Context, options *ReceiveOptions) 
 	return messages[0], nil
 }
 
-func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, options *ReceiveOptions) ([]*ReceivedMessage, error) {
+func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int) ([]*ReceivedMessage, error) {
 	// There are three phases for this function:
 	// Phase 1. <receive, respecting user cancellation>
 	// Phase 2. <check error and exit if fatal>
@@ -333,15 +327,7 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 	//    user isn't actually waiting for anymore. So we make sure that #3 runs if the
 	//    link is still valid.
 	// Phase 3. <drain the link and leave it in a good state>
-	localOpts := &ReceiveOptions{
-		maxWaitTimeAfterFirstMessage: 20 * time.Millisecond,
-	}
-
-	if options != nil {
-		if options.maxWaitTimeAfterFirstMessage != 0 {
-			localOpts.maxWaitTimeAfterFirstMessage = options.maxWaitTimeAfterFirstMessage
-		}
-	}
+	maxWaitTimeAfterFirstMessage := 20 * time.Millisecond
 
 	_, receiver, _, linksRevision, err := r.amqpLinks.Get(ctx)
 
@@ -358,7 +344,7 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 		return nil, err
 	}
 
-	messages, err := r.getMessages(ctx, receiver, maxMessages, localOpts)
+	messages, err := r.getMessages(ctx, receiver, maxMessages, maxWaitTimeAfterFirstMessage)
 
 	if err != nil {
 		return nil, err
@@ -419,7 +405,7 @@ func (r *Receiver) drainLink(receiver internal.AMQPReceiver, messages []*Receive
 
 // getMessages receives messages until a link failure, timeout or the user
 // cancels their context.
-func (r *Receiver) getMessages(ctx context.Context, receiver internal.AMQPReceiver, maxMessages int, ropts *ReceiveOptions) ([]*ReceivedMessage, error) {
+func (r *Receiver) getMessages(ctx context.Context, receiver internal.AMQPReceiver, maxMessages int, maxWaitTimeAfterFirstMessage time.Duration) ([]*ReceivedMessage, error) {
 	var messages []*ReceivedMessage
 
 	for {
@@ -448,7 +434,7 @@ func (r *Receiver) getMessages(ctx context.Context, receiver internal.AMQPReceiv
 
 		if len(messages) == 1 {
 			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, time.Second)
+			ctx, cancel = context.WithTimeout(ctx, maxWaitTimeAfterFirstMessage)
 			defer cancel()
 		}
 	}

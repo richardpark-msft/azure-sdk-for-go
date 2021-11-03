@@ -103,10 +103,9 @@ func newSessionReceiver(ctx context.Context, sessionID *string, ns internal.Name
 // ReceiveMessages receives a fixed number of messages, up to numMessages.
 // There are two ways to stop receiving messages:
 // 1. Cancelling the `ctx` parameter.
-// 2. An implicit timeout (default: 1 second) that starts after the first
-//    message has been received.
-func (r *SessionReceiver) ReceiveMessages(ctx context.Context, maxMessages int, options *ReceiveOptions) ([]*ReceivedMessage, error) {
-	return r.inner.ReceiveMessages(ctx, maxMessages, options)
+// 2. An implicit timeout that starts after the first message has been received.
+func (r *SessionReceiver) ReceiveMessages(ctx context.Context, maxMessages int) ([]*ReceivedMessage, error) {
+	return r.inner.ReceiveMessages(ctx, maxMessages)
 }
 
 // ReceiveDeferredMessages receives messages that were deferred using `Receiver.DeferMessage`.

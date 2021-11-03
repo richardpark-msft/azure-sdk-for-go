@@ -47,7 +47,7 @@ func Test_Sender_SendBatchOfTwo(t *testing.T) {
 	require.NoError(t, err)
 	defer receiver.Close(ctx)
 
-	messages, err := receiver.ReceiveMessages(ctx, 2, nil)
+	messages, err := receiver.ReceiveMessages(ctx, 2)
 	require.NoError(t, err)
 
 	require.EqualValues(t, []string{"[0] message in batch", "[1] message in batch"}, getSortedBodies(messages))
@@ -95,7 +95,7 @@ func Test_Sender_UsingPartitionedQueue(t *testing.T) {
 	err = sender.SendMessageBatch(context.Background(), batch)
 	require.NoError(t, err)
 
-	messages, err := receiver.ReceiveMessages(context.Background(), 1+2, nil)
+	messages, err := receiver.ReceiveMessages(context.Background(), 1+2)
 	require.NoError(t, err)
 
 	sort.Sort(receivedMessages(messages))
@@ -135,7 +135,7 @@ func Test_Sender_SendMessages(t *testing.T) {
 
 	require.NoError(t, err)
 
-	messages, err := receiver.ReceiveMessages(ctx, 2, nil)
+	messages, err := receiver.ReceiveMessages(ctx, 2)
 	require.NoError(t, err)
 
 	require.EqualValues(t, []string{"hello", "world"}, getSortedBodies(messages))
@@ -171,7 +171,7 @@ func Test_Sender_SendMessages_resend(t *testing.T) {
 		err = sender.SendMessage(ctx, msg)
 		require.NoError(t, err)
 
-		message, err := receiver.receiveMessage(ctx, nil)
+		message, err := receiver.receiveMessage(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, "first send", msg.ApplicationProperties["Status"])
 		require.EqualValues(t, "ResendableMessage", string(msg.Body))
@@ -184,7 +184,7 @@ func Test_Sender_SendMessages_resend(t *testing.T) {
 		err = sender.SendMessage(ctx, msg)
 		require.NoError(t, err)
 
-		message, err = receiver.receiveMessage(ctx, nil)
+		message, err = receiver.receiveMessage(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, "resend", msg.ApplicationProperties["Status"])
 		require.EqualValues(t, "ResendableMessage", string(msg.Body))
@@ -243,7 +243,7 @@ func Test_Sender_ScheduleMessages(t *testing.T) {
 
 	require.NoError(t, err)
 
-	messages, err := receiver.ReceiveMessages(ctx, 2, nil)
+	messages, err := receiver.ReceiveMessages(ctx, 2)
 	require.NoError(t, err)
 
 	// we cancelled one of the messages so it won't get enqueued (this is the one that survived)

@@ -40,7 +40,7 @@ func TestNewClientWithAzureIdentity(t *testing.T) {
 	actualSettler, _ := receiver.settler.(*messageSettler)
 	actualSettler.onlyDoBackupSettlement = true // this'll also exercise the management link
 
-	messages, err := receiver.ReceiveMessages(context.TODO(), 1, nil)
+	messages, err := receiver.ReceiveMessages(context.TODO(), 1)
 	require.NoError(t, err)
 
 	require.EqualValues(t, []string{"hello - authenticating with a TokenCredential"}, getSortedBodies(messages))

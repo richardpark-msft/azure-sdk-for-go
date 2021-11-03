@@ -67,7 +67,6 @@ func ExampleReceiver_ReceiveMessages() {
 		// on the contents of the remote queue or subscription and network
 		// conditions.
 		1,
-		nil,
 	)
 
 	exitOnError("Failed to receive messages", err)
