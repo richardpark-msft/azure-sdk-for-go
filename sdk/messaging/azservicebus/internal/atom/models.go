@@ -120,7 +120,65 @@ type (
 	}
 )
 
-// Subscriptions (and rules)
+// Subscriptions
+type (
+	// SubscriptionDescription is the content type for Subscription management requests
+	SubscriptionDescription struct {
+		XMLName xml.Name `xml:"SubscriptionDescription"`
+		BaseEntityDescription
+		LockDuration                              *string                 `xml:"LockDuration,omitempty"` // LockDuration - ISO 8601 timespan duration of a peek-lock; that is, the amount of time that the message is locked for other receivers. The maximum value for LockDuration is 5 minutes; the default value is 1 minute.
+		RequiresSession                           *bool                   `xml:"RequiresSession,omitempty"`
+		DefaultMessageTimeToLive                  *string                 `xml:"DefaultMessageTimeToLive,omitempty"`         // DefaultMessageTimeToLive - ISO 8601 default message timespan to live value. This is the duration after which the message expires, starting from when the message is sent to Service Bus. This is the default value used when TimeToLive is not set on a message itself.
+		DeadLetteringOnMessageExpiration          *bool                   `xml:"DeadLetteringOnMessageExpiration,omitempty"` // DeadLetteringOnMessageExpiration - A value that indicates whether this queue has dead letter support when a message expires.
+		DeadLetteringOnFilterEvaluationExceptions *bool                   `xml:"DeadLetteringOnFilterEvaluationExceptions,omitempty"`
+		DefaultRuleDescription                    *DefaultRuleDescription `xml:"DefaultRuleDescription,omitempty"`
+		MaxDeliveryCount                          *int32                  `xml:"MaxDeliveryCount,omitempty"`        // MaxDeliveryCount - The maximum delivery count. A message is automatically deadlettered after this number of deliveries. default value is 10.
+		MessageCount                              *int64                  `xml:"MessageCount,omitempty"`            // MessageCount - The number of messages in the queue.
+		EnableBatchedOperations                   *bool                   `xml:"EnableBatchedOperations,omitempty"` // EnableBatchedOperations - Value that indicates whether server-side batched operations are enabled.
+		Status                                    *EntityStatus           `xml:"Status,omitempty"`
+		ForwardTo                                 *string                 `xml:"ForwardTo,omitempty"` // ForwardTo - absolute URI of the entity to forward messages
+		UserMetadata                              *string                 `xml:"UserMetadata,omitempty"`
+		ForwardDeadLetteredMessagesTo             *string                 `xml:"ForwardDeadLetteredMessagesTo,omitempty"` // ForwardDeadLetteredMessagesTo - absolute URI of the entity to forward dead letter messages
+		AutoDeleteOnIdle                          *string                 `xml:"AutoDeleteOnIdle,omitempty"`
+		CreatedAt                                 *date.Time              `xml:"CreatedAt,omitempty"`
+		UpdatedAt                                 *date.Time              `xml:"UpdatedAt,omitempty"`
+		AccessedAt                                *date.Time              `xml:"AccessedAt,omitempty"`
+		CountDetails                              *CountDetails           `xml:"CountDetails,omitempty"`
+	}
+
+	// SubscriptionEntity is the Azure Service Bus description of a topic Subscription for management activities
+	SubscriptionEntity struct {
+		*SubscriptionDescription
+		*Entity
+	}
+
+	// SubscriptionFeed is a specialized feed containing Topic Subscriptions
+	SubscriptionFeed struct {
+		*Feed
+		Entries []SubscriptionEnvelope `xml:"entry"`
+	}
+
+	// subscriptionEntryContent is a specialized Topic feed Subscription
+	SubscriptionEnvelope struct {
+		*Entry
+		Content *subscriptionContent `xml:"content"`
+	}
+
+	// subscriptionContent is a specialized Subscription body for an Atom entry
+	subscriptionContent struct {
+		XMLName                 xml.Name                `xml:"content"`
+		Type                    string                  `xml:"type,attr"`
+		SubscriptionDescription SubscriptionDescription `xml:"SubscriptionDescription"`
+	}
+
+	// Entity is represents the most basic form of an Azure Service Bus entity.
+	Entity struct {
+		Name string
+		ID   string
+	}
+)
+
+// Rules for subscriptions.
 type (
 	// FilterDescriber can transform itself into a FilterDescription
 	FilterDescriber interface {
@@ -140,6 +198,7 @@ type (
 		Filter    FilterDescription  `xml:"Filter"`
 		Action    *ActionDescription `xml:"Action,omitempty"`
 	}
+
 	// DefaultRuleDescription is the content type for Subscription Rule management requests
 	DefaultRuleDescription struct {
 		XMLName xml.Name          `xml:"DefaultRuleDescription"`
@@ -195,60 +254,5 @@ type (
 	RuleEnvelope struct {
 		*Entry
 		Content *ruleContent `xml:"content"`
-	}
-
-	// SubscriptionDescription is the content type for Subscription management requests
-	SubscriptionDescription struct {
-		XMLName xml.Name `xml:"SubscriptionDescription"`
-		BaseEntityDescription
-		LockDuration                              *string                 `xml:"LockDuration,omitempty"` // LockDuration - ISO 8601 timespan duration of a peek-lock; that is, the amount of time that the message is locked for other receivers. The maximum value for LockDuration is 5 minutes; the default value is 1 minute.
-		RequiresSession                           *bool                   `xml:"RequiresSession,omitempty"`
-		DefaultMessageTimeToLive                  *string                 `xml:"DefaultMessageTimeToLive,omitempty"`         // DefaultMessageTimeToLive - ISO 8601 default message timespan to live value. This is the duration after which the message expires, starting from when the message is sent to Service Bus. This is the default value used when TimeToLive is not set on a message itself.
-		DeadLetteringOnMessageExpiration          *bool                   `xml:"DeadLetteringOnMessageExpiration,omitempty"` // DeadLetteringOnMessageExpiration - A value that indicates whether this queue has dead letter support when a message expires.
-		DeadLetteringOnFilterEvaluationExceptions *bool                   `xml:"DeadLetteringOnFilterEvaluationExceptions,omitempty"`
-		DefaultRuleDescription                    *DefaultRuleDescription `xml:"DefaultRuleDescription,omitempty"`
-		MaxDeliveryCount                          *int32                  `xml:"MaxDeliveryCount,omitempty"`        // MaxDeliveryCount - The maximum delivery count. A message is automatically deadlettered after this number of deliveries. default value is 10.
-		MessageCount                              *int64                  `xml:"MessageCount,omitempty"`            // MessageCount - The number of messages in the queue.
-		EnableBatchedOperations                   *bool                   `xml:"EnableBatchedOperations,omitempty"` // EnableBatchedOperations - Value that indicates whether server-side batched operations are enabled.
-		Status                                    *EntityStatus           `xml:"Status,omitempty"`
-		ForwardTo                                 *string                 `xml:"ForwardTo,omitempty"` // ForwardTo - absolute URI of the entity to forward messages
-		UserMetadata                              *string                 `xml:"UserMetadata,omitempty"`
-		ForwardDeadLetteredMessagesTo             *string                 `xml:"ForwardDeadLetteredMessagesTo,omitempty"` // ForwardDeadLetteredMessagesTo - absolute URI of the entity to forward dead letter messages
-		AutoDeleteOnIdle                          *string                 `xml:"AutoDeleteOnIdle,omitempty"`
-		CreatedAt                                 *date.Time              `xml:"CreatedAt,omitempty"`
-		UpdatedAt                                 *date.Time              `xml:"UpdatedAt,omitempty"`
-		AccessedAt                                *date.Time              `xml:"AccessedAt,omitempty"`
-		CountDetails                              *CountDetails           `xml:"CountDetails,omitempty"`
-	}
-
-	// SubscriptionEntity is the Azure Service Bus description of a topic Subscription for management activities
-	SubscriptionEntity struct {
-		*SubscriptionDescription
-		*Entity
-	}
-
-	// SubscriptionFeed is a specialized feed containing Topic Subscriptions
-	SubscriptionFeed struct {
-		*Feed
-		Entries []SubscriptionEnvelope `xml:"entry"`
-	}
-
-	// subscriptionEntryContent is a specialized Topic feed Subscription
-	SubscriptionEnvelope struct {
-		*Entry
-		Content *subscriptionContent `xml:"content"`
-	}
-
-	// subscriptionContent is a specialized Subscription body for an Atom entry
-	subscriptionContent struct {
-		XMLName                 xml.Name                `xml:"content"`
-		Type                    string                  `xml:"type,attr"`
-		SubscriptionDescription SubscriptionDescription `xml:"SubscriptionDescription"`
-	}
-
-	// Entity is represents the most basic form of an Azure Service Bus entity.
-	Entity struct {
-		Name string
-		ID   string
 	}
 )
