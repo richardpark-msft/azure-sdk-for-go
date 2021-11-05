@@ -106,7 +106,7 @@ func TestAMQPMessageToMessage(t *testing.T) {
 			ContentEncoding:    "contentEncoding",
 			AbsoluteExpiryTime: until,
 			CreationTime:       until,
-			GroupID:            "groupID",
+			GroupID:            to.StringPtr("groupID"),
 			GroupSequence:      uint32(1),
 		},
 		Annotations: amqp.Annotations{

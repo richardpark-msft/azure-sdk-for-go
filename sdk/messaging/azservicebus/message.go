@@ -108,9 +108,7 @@ func (m *Message) toAMQPMessage() *amqp.Message {
 		MessageID: messageID,
 	}
 
-	if m.SessionID != nil {
-		amqpMsg.Properties.GroupID = *m.SessionID
-	}
+	amqpMsg.Properties.GroupID = m.SessionID
 
 	// if m.GroupSequence != nil {
 	// 	amqpMsg.Properties.GroupSequence = *m.GroupSequence
@@ -184,7 +182,7 @@ func newReceivedMessage(ctxForLogging context.Context, amqpMsg *amqp.Message) *R
 		if id, ok := amqpMsg.Properties.MessageID.(string); ok {
 			msg.ID = id
 		}
-		msg.SessionID = &amqpMsg.Properties.GroupID
+		msg.SessionID = amqpMsg.Properties.GroupID
 		//msg.GroupSequence = &amqpMsg.Properties.GroupSequence
 
 		if id, ok := amqpMsg.Properties.CorrelationID.(string); ok {
