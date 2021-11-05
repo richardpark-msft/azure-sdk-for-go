@@ -60,3 +60,17 @@ func WrapWithSubscriptionEnvelope(sd *SubscriptionDescription) *SubscriptionEnve
 		},
 	}
 }
+
+func WrapWithRuleEnvelope(rd *RuleDescription) *RuleEnvelope {
+	rd.ServiceBusSchema = to.StringPtr(serviceBusSchema)
+
+	return &RuleEnvelope{
+		Entry: &Entry{
+			AtomSchema: atomSchema,
+		},
+		Content: &ruleContent{
+			Type:            applicationXML,
+			RuleDescription: *rd,
+		},
+	}
+}

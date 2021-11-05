@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 
 	"github.com/Azure/go-autorest/autorest/date"
+	"golang.org/x/tools/blog/atom"
 )
 
 // Queues
@@ -120,7 +121,7 @@ type (
 	}
 )
 
-// Subscriptions
+// Subscriptions (and rules)
 type (
 	// SubscriptionDescription is the content type for Subscription management requests
 	SubscriptionDescription struct {
@@ -198,7 +199,6 @@ type (
 		Filter    FilterDescription  `xml:"Filter"`
 		Action    *ActionDescription `xml:"Action,omitempty"`
 	}
-
 	// DefaultRuleDescription is the content type for Subscription Rule management requests
 	DefaultRuleDescription struct {
 		XMLName xml.Name          `xml:"DefaultRuleDescription"`
@@ -254,5 +254,15 @@ type (
 	RuleEnvelope struct {
 		*Entry
 		Content *ruleContent `xml:"content"`
+	}
+
+	ruleEntry struct {
+		*atom.Entry
+		Content *ruleContent `xml:"content"`
+	}
+
+	RuleFeed struct {
+		*Feed
+		Entries []ruleEntry `xml:"entry"`
 	}
 )

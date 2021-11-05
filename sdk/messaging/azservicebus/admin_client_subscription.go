@@ -17,8 +17,11 @@ import (
 
 // SubscriptionProperties represents the static properties of the subscription.
 type SubscriptionProperties struct {
-	// Name of the subscription relative to the namespace base address.
-	Name string
+	// SubscriptionName of the subscription relative to the namespace base address.
+	SubscriptionName string
+
+	// TopicName of the topic for this subscription, relative to the namespace base address.
+	TopicName string
 
 	// LockDuration is the duration a message is locked when using the PeekLock receive mode.
 	// Default is 1 minute.
@@ -60,7 +63,7 @@ type SubscriptionProperties struct {
 	// EnableBatchedOperations indicates whether server-side batched operations are enabled.
 	EnableBatchedOperations *bool
 
-	// UserMetadata is custom metadata that user can associate with the description.
+	// UserMetadata is custom metadata that user can associate with the subscription.
 	UserMetadata *string
 }
 
@@ -145,7 +148,7 @@ type DeleteSubscriptionResponse struct {
 // AddSubscription creates a subscription to a topic using defaults for all options.
 func (ac *AdminClient) AddSubscription(ctx context.Context, topicName string, subscriptionName string) (*AddSubscriptionResponse, error) {
 	return ac.AddSubscriptionWithProperties(ctx, topicName, &SubscriptionProperties{
-		Name: subscriptionName,
+		SubscriptionName: subscriptionName,
 	})
 }
 
@@ -332,13 +335,13 @@ func (ac *AdminClient) createOrUpdateSubscriptionImpl(ctx context.Context, topic
 	}
 
 	var atomResp *atom.SubscriptionEnvelope
-	resp, err := ac.em.Put(ctx, fmt.Sprintf("/%s/Subscriptions/%s", topicName, props.Name), env, &atomResp, mw...)
+	resp, err := ac.em.Put(ctx, fmt.Sprintf("/%s/Subscriptions/%s", topicName, props.SubscriptionName), env, &atomResp, mw...)
 
 	if err != nil {
 		return nil, nil, err
 	}
 
-	newProps, err := newSubscriptionProperties(topicName, props.Name, &atomResp.Content.SubscriptionDescription)
+	newProps, err := newSubscriptionProperties(topicName, props.SubscriptionName, &atomResp.Content.SubscriptionDescription)
 
 	if err != nil {
 		return nil, nil, err
@@ -381,18 +384,18 @@ func newSubscriptionProperties(topicName string, subscriptionName string, desc *
 	}
 
 	return &SubscriptionProperties{
-		Name:                             subscriptionName,
-		RequiresSession:                  desc.RequiresSession,
-		DeadLetteringOnMessageExpiration: desc.DeadLetteringOnMessageExpiration,
+		SubscriptionName:                                subscriptionName,
+		RequiresSession:                                 desc.RequiresSession,
+		DeadLetteringOnMessageExpiration:                desc.DeadLetteringOnMessageExpiration,
 		EnableDeadLetteringOnFilterEvaluationExceptions: desc.DeadLetteringOnFilterEvaluationExceptions,
-		MaxDeliveryCount:              desc.MaxDeliveryCount,
-		ForwardTo:                     desc.ForwardTo,
-		ForwardDeadLetteredMessagesTo: desc.ForwardDeadLetteredMessagesTo,
-		UserMetadata:                  desc.UserMetadata,
-		LockDuration:                  lockDuration,
-		DefaultMessageTimeToLive:      defaultMessageTimeToLive,
-		EnableBatchedOperations:       desc.EnableBatchedOperations,
-		Status:                        (*EntityStatus)(desc.Status),
+		MaxDeliveryCount:                                desc.MaxDeliveryCount,
+		ForwardTo:                                       desc.ForwardTo,
+		ForwardDeadLetteredMessagesTo:                   desc.ForwardDeadLetteredMessagesTo,
+		UserMetadata:                                    desc.UserMetadata,
+		LockDuration:                                    lockDuration,
+		DefaultMessageTimeToLive:                        defaultMessageTimeToLive,
+		EnableBatchedOperations:                         desc.EnableBatchedOperations,
+		Status:                                          (*EntityStatus)(desc.Status),
 	}, nil
 }
 

@@ -547,7 +547,7 @@ func TestAdminClient_TopicAndSubscription(t *testing.T) {
 	require.False(t, subExists)
 
 	addSubWithPropsResp, err := adminClient.AddSubscriptionWithProperties(context.Background(), topicName, &SubscriptionProperties{
-		Name:                             subscriptionName,
+		SubscriptionName:                 subscriptionName,
 		LockDuration:                     toDurationPtr(3 * time.Minute),
 		RequiresSession:                  to.BoolPtr(false),
 		DefaultMessageTimeToLive:         toDurationPtr(7 * time.Minute),
@@ -563,7 +563,7 @@ func TestAdminClient_TopicAndSubscription(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, &SubscriptionProperties{
-		Name:                             subscriptionName,
+		SubscriptionName:                 subscriptionName,
 		LockDuration:                     toDurationPtr(3 * time.Minute),
 		RequiresSession:                  to.BoolPtr(false),
 		DefaultMessageTimeToLive:         toDurationPtr(7 * time.Minute),
@@ -629,7 +629,7 @@ func TestAdminClient_TopicAndSubscriptionRuntimeProperties(t *testing.T) {
 	addSubResp, err := adminClient.AddSubscription(context.Background(), topicName, subscriptionName)
 	require.NoError(t, err)
 	require.NotNil(t, addSubResp)
-	require.EqualValues(t, subscriptionName, addSubResp.Value.Name)
+	require.EqualValues(t, subscriptionName, addSubResp.Value.SubscriptionName)
 
 	defer deleteSubscription(t, adminClient, topicName, subscriptionName)
 
@@ -817,7 +817,7 @@ func TestAdminClient_ListSubscriptions(t *testing.T) {
 		expectedSubscriptions = append(expectedSubscriptions, subName)
 
 		_, err = adminClient.AddSubscriptionWithProperties(context.Background(), topicName, &SubscriptionProperties{
-			Name:                     subName,
+			SubscriptionName:         subName,
 			DefaultMessageTimeToLive: toDurationPtr(time.Duration(i+1) * time.Minute),
 		})
 		require.NoError(t, err)
@@ -834,10 +834,10 @@ func TestAdminClient_ListSubscriptions(t *testing.T) {
 		page := pager.PageResponse()
 
 		for _, props := range page.Value {
-			_, exists := all[props.Name]
+			_, exists := all[props.SubscriptionName]
 			require.False(t, exists, "Each subscription result should be unique")
-			all[props.Name] = props
-			allNames = append(allNames, props.Name)
+			all[props.SubscriptionName] = props
+			allNames = append(allNames, props.SubscriptionName)
 		}
 	}
 
@@ -859,11 +859,11 @@ func TestAdminClient_ListSubscriptions(t *testing.T) {
 
 	require.True(t, pager.NextPage(context.Background()))
 	require.EqualValues(t, 1, len(pager.PageResponse().Value))
-	require.EqualValues(t, allNames[len(allNames)-2], pager.PageResponse().Value[0].Name)
+	require.EqualValues(t, allNames[len(allNames)-2], pager.PageResponse().Value[0].SubscriptionName)
 	require.NoError(t, pager.Err())
 
 	require.True(t, pager.NextPage(context.Background()))
-	require.EqualValues(t, allNames[len(allNames)-1], pager.PageResponse().Value[0].Name)
+	require.EqualValues(t, allNames[len(allNames)-1], pager.PageResponse().Value[0].SubscriptionName)
 	require.False(t, pager.NextPage(context.Background()))
 }
 
@@ -959,7 +959,7 @@ func TestAdminClient_UpdateSubscription(t *testing.T) {
 	require.Contains(t, err.Error(), "The value for the RequiresSession property of an existing Subscription cannot be changed")
 	require.Nil(t, updateResp)
 
-	addResp.Value.Name = "non-existent-subscription"
+	addResp.Value.SubscriptionName = "non-existent-subscription"
 	updateResp, err = adminClient.UpdateSubscription(context.Background(), topicName, addResp.Value)
 	// a little awkward, we'll make these programatically inspectable as we add in better error handling.
 	require.Contains(t, err.Error(), "error code: 404")
@@ -1105,12 +1105,202 @@ func TestAdminClient_LackPermissions_Subscription(t *testing.T) {
 	require.Contains(t, err.Error(), "401 SubCode=40100: Unauthorized : Unauthorized access for 'CreateOrUpdateSubscription'")
 
 	_, err = testData.Client.UpdateSubscription(ctx, testData.TopicName, &SubscriptionProperties{
-		Name: "canneverbecreated",
+		SubscriptionName: "canneverbecreated",
 	})
 	require.Contains(t, err.Error(), "401 SubCode=40100: Unauthorized : Unauthorized access for 'CreateOrUpdateSubscription'")
 
 	_, err = testData.Client.DeleteSubscription(ctx, testData.TopicName, testData.SubName)
 	require.Contains(t, err.Error(), "401 SubCode=40100: Unauthorized : Unauthorized access for 'DeleteSubscription'")
+}
+
+func TestAdminClient_Rules_Basic(t *testing.T) {
+	adminClient, err := NewAdminClientWithConnectionString(getConnectionString(t), nil)
+	require.NoError(t, err)
+
+	topicName := fmt.Sprintf("topic-%X", time.Now().UnixNano())
+	_, err = adminClient.AddTopic(context.Background(), topicName)
+	require.NoError(t, err)
+
+	defer deleteTopic(t, adminClient, topicName)
+
+	subscriptionName := "sub"
+	_, err = adminClient.AddSubscription(context.Background(), topicName, subscriptionName)
+	require.NoError(t, err)
+
+	defer deleteSubscription(t, adminClient, topicName, subscriptionName)
+
+	existsResp, err := adminClient.RuleExists(context.Background(), topicName, subscriptionName, "NonExistentRule")
+	require.NoError(t, err)
+	require.False(t, existsResp.Exists)
+
+	existsResp, err = adminClient.RuleExists(context.Background(), topicName, subscriptionName, "$Default")
+	require.NoError(t, err)
+	require.True(t, existsResp.Exists)
+
+	ruleResp, err := adminClient.GetRule(context.Background(), topicName, subscriptionName, "$Default")
+	require.NoError(t, err)
+	require.NotNil(t, ruleResp)
+
+	require.EqualValues(t, ruleResp.Rule.RuleName, "$Default")
+	require.EqualValues(t, ruleResp.Rule.TopicName, topicName)
+	require.EqualValues(t, ruleResp.Rule.SubscriptionName, subscriptionName)
+
+	// the default rule is just to allow all messages to go through
+	_, ok := ruleResp.Rule.Filter.(*TrueRuleFilter)
+	require.True(t, ok)
+
+	// there's no action by default
+	require.Nil(t, ruleResp.Rule.Action)
+}
+
+func TestRule_SQLRuleSQLAction(t *testing.T) {
+	adminClient, err := NewAdminClientWithConnectionString(getConnectionString(t), nil)
+	require.NoError(t, err)
+
+	topicName := fmt.Sprintf("topic-%X", time.Now().UnixNano())
+	_, err = adminClient.AddTopic(context.Background(), topicName)
+	require.NoError(t, err)
+
+	defer deleteTopic(t, adminClient, topicName)
+
+	subscriptionName := "sub"
+	_, err = adminClient.AddSubscription(context.Background(), topicName, subscriptionName)
+	require.NoError(t, err)
+
+	defer deleteSubscription(t, adminClient, topicName, subscriptionName)
+
+	// add a new rule
+	ruleName := "rule1"
+
+	existsResp, err := adminClient.RuleExists(context.Background(), topicName, subscriptionName, ruleName)
+	require.NoError(t, err)
+	require.False(t, existsResp.Exists)
+
+	rule := &RuleProperties{
+		RuleName:         ruleName,
+		TopicName:        topicName,
+		SubscriptionName: subscriptionName,
+		Filter: &SQLRuleFilter{
+			Expression: "2=2",
+		},
+		Action: &SQLRuleAction{
+			Expression: "SET Property1=1",
+		},
+	}
+
+	addResp, err := adminClient.AddRule(context.Background(), rule)
+	require.NoError(t, err)
+	require.NotNil(t, addResp)
+
+	defer deleteRule(t, adminClient, topicName, subscriptionName, ruleName)
+
+	existsResp, err = adminClient.RuleExists(context.Background(), topicName, subscriptionName, ruleName)
+	require.NoError(t, err)
+	require.True(t, existsResp.Exists)
+
+	sqlRuleFilter, ok := addResp.Rule.Filter.(*SQLRuleFilter)
+	require.True(t, ok)
+
+	require.EqualValues(t, "2=2", sqlRuleFilter.Expression)
+
+	sqlRuleAction, ok := addResp.Rule.Action.(*SQLRuleAction)
+	require.True(t, ok)
+
+	require.EqualValues(t, "SET Property1=1", sqlRuleAction.Expression)
+}
+
+func TestRule_CorrelationRule(t *testing.T) {
+	adminClient, err := NewAdminClientWithConnectionString(getConnectionString(t), nil)
+	require.NoError(t, err)
+
+	topicName := fmt.Sprintf("topic-%X", time.Now().UnixNano())
+	_, err = adminClient.AddTopic(context.Background(), topicName)
+	require.NoError(t, err)
+
+	defer deleteTopic(t, adminClient, topicName)
+
+	subscriptionName := "sub"
+	_, err = adminClient.AddSubscription(context.Background(), topicName, subscriptionName)
+	require.NoError(t, err)
+
+	// add a new rule
+	ruleName := "rule1"
+
+	existsResp, err := adminClient.RuleExists(context.Background(), topicName, subscriptionName, ruleName)
+	require.NoError(t, err)
+	require.False(t, existsResp.Exists)
+
+	rule := &RuleProperties{
+		RuleName:         ruleName,
+		TopicName:        topicName,
+		SubscriptionName: subscriptionName,
+		Filter: &CorrelationRuleFilter{
+			ContentType:      to.StringPtr("application/octet-stream"),
+			CorrelationID:    to.StringPtr("correlationID"),
+			MessageID:        to.StringPtr("messageID"),
+			ReplyTo:          to.StringPtr("replyTo"),
+			ReplyToSessionID: to.StringPtr("replyToSessionID"),
+			SessionID:        to.StringPtr("sessionID"),
+			Subject:          to.StringPtr("subject"),
+			To:               to.StringPtr("to"),
+		},
+	}
+
+	addResp, err := adminClient.AddRule(context.Background(), rule)
+	require.NoError(t, err)
+	require.NotNil(t, addResp)
+
+	defer deleteRule(t, adminClient, topicName, subscriptionName, ruleName)
+
+	filter, ok := addResp.Rule.Filter.(*CorrelationRuleFilter)
+	require.True(t, ok)
+
+	require.EqualValues(t, &CorrelationRuleFilter{
+		ContentType:      to.StringPtr("application/octet-stream"),
+		CorrelationID:    to.StringPtr("correlationID"),
+		MessageID:        to.StringPtr("messageID"),
+		ReplyTo:          to.StringPtr("replyTo"),
+		ReplyToSessionID: to.StringPtr("replyToSessionID"),
+		SessionID:        to.StringPtr("sessionID"),
+		Subject:          to.StringPtr("subject"),
+		To:               to.StringPtr("to"),
+	}, filter)
+
+}
+
+func TestRule_TrueFalse(t *testing.T) {
+	adminClient, err := NewAdminClientWithConnectionString(getConnectionString(t), nil)
+	require.NoError(t, err)
+
+	topicName := fmt.Sprintf("topic-%X", time.Now().UnixNano())
+	_, err = adminClient.AddTopic(context.Background(), topicName)
+	require.NoError(t, err)
+
+	defer deleteTopic(t, adminClient, topicName)
+
+	subscriptionName := "sub"
+	_, err = adminClient.AddSubscription(context.Background(), topicName, subscriptionName)
+	require.NoError(t, err)
+
+	addResp, err := adminClient.AddRule(context.Background(), &RuleProperties{
+		RuleName:         "rule1",
+		TopicName:        topicName,
+		SubscriptionName: subscriptionName,
+		Filter:           &TrueRuleFilter{},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, addResp)
+
+	updateResp, err := adminClient.UpdateRule(context.Background(), &RuleProperties{
+		RuleName:         "rule1",
+		TopicName:        topicName,
+		SubscriptionName: subscriptionName,
+		Filter:           &FalseRuleFilter{},
+	})
+	require.NoError(t, err)
+
+	_, ok := updateResp.Rule.Filter.(*FalseRuleFilter)
+	require.True(t, ok)
 }
 
 func toDurationPtr(d time.Duration) *time.Duration {
@@ -1129,5 +1319,10 @@ func deleteTopic(t *testing.T, ac *AdminClient, topicName string) {
 
 func deleteSubscription(t *testing.T, ac *AdminClient, topicName string, subscriptionName string) {
 	_, err := ac.DeleteSubscription(context.Background(), topicName, subscriptionName)
+	require.NoError(t, err)
+}
+
+func deleteRule(t *testing.T, ac *AdminClient, topicName, subscriptionName, ruleName string) {
+	_, err := ac.DeleteRule(context.Background(), topicName, subscriptionName, ruleName)
 	require.NoError(t, err)
 }

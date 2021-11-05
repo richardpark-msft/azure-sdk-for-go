@@ -4,6 +4,9 @@
 package azservicebus
 
 import (
+	"context"
+	"net/http"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/atom"
@@ -42,4 +45,21 @@ func NewAdminClient(fullyQualifiedNamespace string, tokenCredential azcore.Token
 	return &AdminClient{em: em}, nil
 }
 
-// func (ac *AdminClient) GetNamespaceProperties() {}
+func (ac *AdminClient) GetNamespaceProperties() {
+
+}
+
+func ifMatchMiddleware(creating bool) []atom.MiddlewareFunc {
+	if creating {
+		return nil
+	}
+
+	// an update requires the entity to already exist.
+	return []atom.MiddlewareFunc{
+		func(next atom.RestHandler) atom.RestHandler {
+			return func(ctx context.Context, req *http.Request) (*http.Response, error) {
+				req.Header.Set("If-Match", "*")
+				return next(ctx, req)
+			}
+		}}
+}

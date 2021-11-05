@@ -26,15 +26,16 @@ type (
 	// multiple match properties, the filter combines them as a logical AND condition, meaning for the filter to match,
 	// all conditions must match.
 	CorrelationFilter struct {
-		CorrelationID    *string                `xml:"CorrelationId,omitempty"`
-		MessageID        *string                `xml:"MessageId,omitempty"`
-		To               *string                `xml:"To,omitempty"`
-		ReplyTo          *string                `xml:"ReplyTo,omitempty"`
-		Label            *string                `xml:"Label,omitempty"`
-		SessionID        *string                `xml:"SessionId,omitempty"`
-		ReplyToSessionID *string                `xml:"ReplyToSessionId,omitempty"`
-		ContentType      *string                `xml:"ContentType,omitempty"`
-		Properties       map[string]interface{} `xml:"Properties,omitempty"`
+		CorrelationID    *string `xml:"CorrelationId,omitempty"`
+		MessageID        *string `xml:"MessageId,omitempty"`
+		To               *string `xml:"To,omitempty"`
+		ReplyTo          *string `xml:"ReplyTo,omitempty"`
+		Label            *string `xml:"Label,omitempty"`
+		SessionID        *string `xml:"SessionId,omitempty"`
+		ReplyToSessionID *string `xml:"ReplyToSessionId,omitempty"`
+		ContentType      *string `xml:"ContentType,omitempty"`
+
+		// TODO: properties is missing
 	}
 )
 
