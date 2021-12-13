@@ -132,7 +132,9 @@ func TestSessionReceiver_acceptSessionButAlreadyLocked(t *testing.T) {
 	// You can address a session by name which makes lock contention possible (unlike
 	// messages where the lock token is not a predefined value)
 	receiver, err = client.AcceptSessionForQueue(ctx, queueName, "session-1", nil)
-	require.True(t, internal.IsSessionLockedError(err))
+
+	sbe := internal.ToSBE(ctx, err)
+	require.EqualValues(t, internal.RecoveryKindNonRetriable, sbe.RecoveryKind)
 	require.Nil(t, receiver)
 }
 

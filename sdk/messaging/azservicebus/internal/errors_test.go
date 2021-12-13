@@ -90,13 +90,26 @@ func Test_isPermanentNetError(t *testing.T) {
 	require.True(t, isPermanentNetError(&permanentNetError{}))
 }
 
-func Test_isRetryableAMQPError(t *testing.T) {
-	ctx := context.Background()
-
+func Test_retryableNoRecoveryNeeded(t *testing.T) {
 	retryableCodes := []string{
 		string(amqp.ErrorInternalError),
 		string(errorServerBusy),
 		string(errorTimeout),
+	}
+
+	for _, code := range retryableCodes {
+		sbe := ToSBE(context.Background(), &amqp.Error{
+			Condition: amqp.ErrorCondition(code),
+		})
+
+		require.EqualValues(t, RecoveryKindNone, sbe.RecoveryKind, fmt.Sprintf("Error for link recovery: %s", code))
+	}
+}
+
+func Test_retryableButLinkRecoveryRequired(t *testing.T) {
+	ctx := context.Background()
+
+	linkErrorCodes := []string{
 		string(errorOperationCancelled),
 		"client.sender:not-enough-link-credit",
 		string(amqp.ErrorUnauthorizedAccess),
@@ -108,62 +121,53 @@ func Test_isRetryableAMQPError(t *testing.T) {
 		string(amqp.ErrorNotFound),
 	}
 
-	for _, code := range retryableCodes {
-		require.True(t, isRetryableAMQPError(ctx, &amqp.Error{
+	for _, code := range linkErrorCodes {
+		sbe := ToSBE(ctx, &amqp.Error{
 			Condition: amqp.ErrorCondition(code),
-		}))
+		})
 
-		// it works equally well if the error is just in the String().
-		// Need to narrow this down some more to see where the errors
-		// might not be getting converted properly.
-		require.True(t, isRetryableAMQPError(ctx, errors.New(code)))
+		require.EqualValues(t, RecoveryKindLink, sbe.RecoveryKind, fmt.Sprintf("Error for link recovery: %s", code))
 	}
 
-	require.False(t, isRetryableAMQPError(ctx, errors.New("some non-amqp related error")))
+	sbe := ToSBE(ctx, errors.New("some non-amqp related error"))
+	require.EqualValues(t, RecoveryKindLink, sbe.RecoveryKind)
 }
 
-func Test_shouldRecreateLink(t *testing.T) {
-	require.False(t, shouldRecreateLink(nil))
+func Test_recoveryKinds(t *testing.T) {
+	ctx := context.Background()
 
-	require.True(t, shouldRecreateLink(&amqp.DetachError{}))
+	sbe := ToSBE(ctx, nil)
+	require.Nil(t, sbe)
+
+	// link recoveries
+	require.EqualValues(t, RecoveryKindLink, ToSBE(ctx, amqp.ErrLinkClosed).RecoveryKind)
+	require.EqualValues(t, RecoveryKindLink, ToSBE(ctx, amqp.ErrSessionClosed).RecoveryKind)
+	require.EqualValues(t, RecoveryKindLink, ToSBE(ctx, &amqp.DetachError{}).RecoveryKind)
+	require.EqualValues(t, RecoveryKindLink, ToSBE(ctx, fmt.Errorf("wrapped: %w", amqp.ErrLinkClosed)).RecoveryKind)
+	require.EqualValues(t, RecoveryKindLink, ToSBE(ctx, fmt.Errorf("wrapped: %w", amqp.ErrSessionClosed)).RecoveryKind)
+	require.EqualValues(t, RecoveryKindLink, ToSBE(ctx, fmt.Errorf("wrapped: %w", &amqp.DetachError{})).RecoveryKind)
 
 	// going to treat these as "connection troubles" and throw them into the
 	// connection recovery scenario instead.
-	require.False(t, shouldRecreateLink(amqp.ErrLinkClosed))
-	require.False(t, shouldRecreateLink(amqp.ErrSessionClosed))
+	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, &permanentNetError{}).RecoveryKind)
+	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, fmt.Errorf("%w", &permanentNetError{})).RecoveryKind)
+	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, amqp.ErrLinkClosed).RecoveryKind)
+	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, fmt.Errorf("%w", amqp.ErrLinkClosed)).RecoveryKind)
 }
 
-func Test_shouldRecreateConnection(t *testing.T) {
+func Test_IsNonRetriable(t *testing.T) {
 	ctx := context.Background()
 
-	require.False(t, shouldRecreateConnection(ctx, nil))
-	require.True(t, shouldRecreateConnection(ctx, &permanentNetError{}))
-	require.True(t, shouldRecreateConnection(ctx, fmt.Errorf("%w", &permanentNetError{})))
+	errs := []error{
+		context.Canceled,
+		context.DeadlineExceeded,
+		ErrNonRetriable{Message: "any message"},
+		fmt.Errorf("wrapped: %w", context.Canceled),
+		fmt.Errorf("wrapped: %w", context.DeadlineExceeded),
+		fmt.Errorf("wrapped: %w", ErrNonRetriable{Message: "any message"}),
+	}
 
-	require.False(t, shouldRecreateLink(amqp.ErrLinkClosed))
-	require.False(t, shouldRecreateLink(fmt.Errorf("wrapped: %w", amqp.ErrLinkClosed)))
-
-	require.False(t, shouldRecreateLink(amqp.ErrSessionClosed))
-	require.False(t, shouldRecreateLink(fmt.Errorf("wrapped: %w", amqp.ErrSessionClosed)))
-}
-
-// TODO: while testing it appeared there were some errors that were getting string-ized
-// We want to eliminate these. 'stress.go' reproduces most of these as you disconnect
-// and reconnect.
-func Test_stringErrorsToEliminate(t *testing.T) {
-	require.True(t, shouldRecreateLink(errors.New("detach frame link detached")))
-	require.True(t, isRetryableAMQPError(context.Background(), errors.New("amqp: connection closed")))
-	require.True(t, IsCancelError(errors.New("context canceled")))
-}
-
-func Test_IsCancelError(t *testing.T) {
-	require.False(t, IsCancelError(nil))
-	require.False(t, IsCancelError(errors.New("not a cancel error")))
-
-	require.True(t, IsCancelError(errors.New("context canceled")))
-
-	require.True(t, IsCancelError(context.Canceled))
-	require.True(t, IsCancelError(context.DeadlineExceeded))
-	require.True(t, IsCancelError(fmt.Errorf("wrapped: %w", context.Canceled)))
-	require.True(t, IsCancelError(fmt.Errorf("wrapped: %w", context.DeadlineExceeded)))
+	for _, err := range errs {
+		require.EqualValues(t, RecoveryKindNonRetriable, ToSBE(ctx, err).RecoveryKind)
+	}
 }

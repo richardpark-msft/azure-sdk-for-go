@@ -10,7 +10,6 @@ require (
 	github.com/Azure/go-amqp v0.17.0
 	github.com/devigned/tab v0.1.1
 	github.com/joho/godotenv v1.3.0
-	github.com/jpillora/backoff v1.0.0
 	github.com/microsoft/ApplicationInsights-Go v0.4.4
 	github.com/stretchr/testify v1.7.0
 	golang.org/x/net v0.0.0-20210929193557-e81a3d93ecf6 // indirect

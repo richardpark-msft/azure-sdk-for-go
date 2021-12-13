@@ -45,7 +45,11 @@ type ClientOptions struct {
 	// NewWebSocketConn is a function that can create a net.Conn for use with websockets.
 	// For an example, see ExampleNewClient_usingWebsockets() function in example_client_test.go.
 	NewWebSocketConn func(ctx context.Context, args NewWebSocketConnArgs) (net.Conn, error)
+
+	RetryOptions *RetryOptions
 }
+
+type RetryOptions internal.RetryOptions
 
 // NewWebSocketConnArgs are passed to your web socket creation function (ClientOptions.NewWebSocketConn)
 type NewWebSocketConnArgs = internal.NewWebSocketConnArgs
@@ -107,7 +111,7 @@ func newClientImpl(creds clientCreds, options *ClientOptions) (*Client, error) {
 	if client.creds.connectionString != "" {
 		nsOptions = append(nsOptions, internal.NamespaceWithConnectionString(client.creds.connectionString))
 	} else if client.creds.credential != nil {
-		option := internal.NamespacesWithTokenCredential(
+		option := internal.NamespaceWithTokenCredential(
 			client.creds.fullyQualifiedNamespace,
 			client.creds.credential)
 
@@ -125,6 +129,10 @@ func newClientImpl(creds clientCreds, options *ClientOptions) (*Client, error) {
 
 		if options.ApplicationID != "" {
 			nsOptions = append(nsOptions, internal.NamespaceWithUserAgent(options.ApplicationID))
+		}
+
+		if options.RetryOptions != nil {
+			nsOptions = append(nsOptions, internal.NamespaceWithRetryOptions((*internal.RetryOptions)(options.RetryOptions)))
 		}
 	}
 

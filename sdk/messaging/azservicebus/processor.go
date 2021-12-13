@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/tracing"
@@ -55,6 +54,9 @@ type processorOptions struct {
 	// goroutines that are active at any time.
 	// Default is 1.
 	MaxConcurrentCalls int
+
+	// RetryOptions controls the options for retries.
+	RetryOptions *internal.RetryOptions
 }
 
 // processor is a push-based receiver for Service Bus.
@@ -76,7 +78,7 @@ type processor struct {
 
 	wg sync.WaitGroup
 
-	baseRetrier    internal.Retrier
+	retryOptions   *internal.RetryOptions
 	cleanupOnClose func()
 }
 
@@ -110,13 +112,7 @@ func applyProcessorOptions(p *processor, entity *entity, options *processorOptio
 
 func newProcessor(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanupOnClose func(), options *processorOptions) (*processor, error) {
 	processor := &processor{
-		// TODO: make this configurable
-		baseRetrier: internal.NewBackoffRetrier(internal.BackoffRetrierParams{
-			Factor:     1.5,
-			Min:        time.Second,
-			Max:        time.Minute,
-			MaxRetries: 10,
-		}),
+		retryOptions:   nil,
 		cleanupOnClose: cleanupOnClose,
 		mu:             &sync.Mutex{},
 	}
@@ -147,7 +143,7 @@ func newProcessor(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanup
 		return nil, receiver, nil
 	})
 
-	processor.settler = newMessageSettler(processor.amqpLinks, processor.baseRetrier)
+	processor.settler = newMessageSettler(processor.amqpLinks, processor.retryOptions)
 	processor.receiversCtx, processor.cancelReceivers = context.WithCancel(context.Background())
 
 	return processor, nil
@@ -187,29 +183,24 @@ func (p *processor) Start(ctx context.Context, handleMessage func(message *Recei
 	}
 
 	for {
-		retrier := p.baseRetrier.Copy()
+		err := internal.Retry(ctx, func(ctx context.Context, args internal.RetryFnArgs) error {
+			return p.subscribe()
+		}, nil, p.retryOptions)
 
-		for retrier.Try(p.receiversCtx) {
-			if err := p.subscribe(); err != nil {
-				if internal.IsCancelError(err) {
-					break
-				}
-			}
-		}
-
-		select {
-		case <-p.receiversCtx.Done():
-			// check, did they cancel or did we cancel?
+		if internal.IsCancelError(err) {
 			select {
-			case <-ctx.Done():
-				return ctx.Err()
+			case <-p.receiversCtx.Done():
+				// check, did they cancel or did we cancel?
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+					return nil
+				}
 			default:
-				return nil
 			}
-		default:
 		}
 	}
-
 }
 
 // Close will wait for any pending callbacks to complete.

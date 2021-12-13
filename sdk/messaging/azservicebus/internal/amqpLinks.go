@@ -14,15 +14,6 @@ import (
 	"github.com/devigned/tab"
 )
 
-type errClosedPermanently struct{}
-
-func (e errClosedPermanently) Error() string { return "Link has been closed permanently" }
-func (e errClosedPermanently) NonRetriable() {}
-
-func ShouldRecover(ctx context.Context, err error) bool {
-	return shouldRecreateConnection(ctx, err) || shouldRecreateLink(err)
-}
-
 type AMQPLinks interface {
 	EntityPath() string
 	ManagementPath() string
@@ -59,7 +50,7 @@ type amqpLinks struct {
 	managementPath string
 	audience       string
 	createLink     CreateLinkFunc
-	baseRetrier    Retrier
+	retryOptions   *RetryOptions
 
 	mu sync.RWMutex
 
@@ -97,13 +88,13 @@ type CreateLinkFunc func(ctx context.Context, session AMQPSession) (AMQPSenderCl
 
 // NewAMQPLinks creates a session, starts the claim refresher and creates an associated
 // management link for a specific entity path.
-func newAMQPLinks(ns NamespaceForAMQPLinks, entityPath string, baseRetrier Retrier, createLink CreateLinkFunc) AMQPLinks {
+func newAMQPLinks(ns NamespaceForAMQPLinks, entityPath string, retryOptions *RetryOptions, createLink CreateLinkFunc) AMQPLinks {
 	l := &amqpLinks{
 		entityPath:        entityPath,
 		managementPath:    fmt.Sprintf("%s/$management", entityPath),
 		audience:          ns.GetEntityAudience(entityPath),
 		createLink:        createLink,
-		baseRetrier:       baseRetrier,
+		retryOptions:      retryOptions,
 		closedPermanently: false,
 		revision:          1,
 		ns:                ns,
@@ -130,7 +121,7 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 
 	if closedPermanently {
 		span.AddAttributes(tab.StringAttribute("outcome", "was_closed_permanently"))
-		return errClosedPermanently{}
+		return ErrNonRetriable{Message: "Link has been closed permanently"}
 	}
 
 	if theirLinkRevision != nil && ourLinkRevision > *theirLinkRevision {
@@ -182,25 +173,10 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 func (links *amqpLinks) RecoverIfNeeded(ctx context.Context, linksRevision uint64, origErr error) error {
 	ctx, span := tab.StartSpan(ctx, tracing.SpanRecover)
 	defer span.End()
-
-	var err error = origErr
-
-	retrier := links.baseRetrier.Copy()
-
-	for retrier.Try(ctx) {
-		span.AddAttributes(tab.StringAttribute("recover_attempt", fmt.Sprintf("%d", retrier.CurrentTry())))
-
-		err = links.recoverImpl(ctx, retrier.CurrentTry(), linksRevision, err)
-
-		if err == nil {
-			return nil
-		}
-	}
-
-	return err
+	return links.recoverImpl(ctx, linksRevision, origErr)
 }
 
-func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision uint64, origErr error) error {
+func (links *amqpLinks) recoverImpl(ctx context.Context, linksRevision uint64, origErr error) error {
 	_, span := tab.StartSpan(ctx, tracing.SpanRecoverLink)
 	defer span.End()
 
@@ -214,9 +190,9 @@ func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision 
 	default:
 	}
 
-	span.AddAttributes(tab.Int64Attribute("attempt", int64(try)))
+	sbe := ToSBE(ctx, origErr)
 
-	if shouldRecreateLink(origErr) {
+	if sbe.RecoveryKind == RecoveryKindLink {
 		span.AddAttributes(
 			tab.StringAttribute("recovery_kind", "link"),
 			tab.StringAttribute("error", origErr.Error()),
@@ -228,7 +204,7 @@ func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision 
 		}
 
 		return nil
-	} else if shouldRecreateConnection(ctx, origErr) {
+	} else if sbe.RecoveryKind == RecoveryKindConn {
 		span.AddAttributes(
 			tab.StringAttribute("recovery_kind", "connection"),
 			tab.StringAttribute("error", origErr.Error()),
@@ -281,7 +257,7 @@ func (l *amqpLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClie
 	l.mu.RUnlock()
 
 	if closedPermanently {
-		return nil, nil, nil, 0, errClosedPermanently{}
+		return nil, nil, nil, 0, ErrNonRetriable{}
 	}
 
 	if sender != nil || receiver != nil {

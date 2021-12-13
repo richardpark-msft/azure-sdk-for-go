@@ -38,7 +38,7 @@ type (
 
 		newWebSocketConn func(ctx context.Context, args NewWebSocketConnArgs) (net.Conn, error)
 
-		baseRetrier Retrier
+		retryOptions *RetryOptions
 
 		clientMu       sync.Mutex
 		clientRevision uint64
@@ -125,9 +125,9 @@ func NamespaceWithWebSocket(newWebSocketConn func(ctx context.Context, args NewW
 	}
 }
 
-// NamespacesWithTokenCredential sets the token provider on the namespace
+// NamespaceWithTokenCredential sets the token provider on the namespace
 // fullyQualifiedNamespace is the Service Bus namespace name (ex: myservicebus.servicebus.windows.net)
-func NamespacesWithTokenCredential(fullyQualifiedNamespace string, tokenCredential azcore.TokenCredential) NamespaceOption {
+func NamespaceWithTokenCredential(fullyQualifiedNamespace string, tokenCredential azcore.TokenCredential) NamespaceOption {
 	return func(ns *Namespace) error {
 		ns.TokenProvider = sbauth.NewTokenProvider(tokenCredential)
 		ns.FQDN = fullyQualifiedNamespace
@@ -135,22 +135,16 @@ func NamespacesWithTokenCredential(fullyQualifiedNamespace string, tokenCredenti
 	}
 }
 
+func NamespaceWithRetryOptions(retryOptions *RetryOptions) NamespaceOption {
+	return func(ns *Namespace) error {
+		ns.retryOptions = retryOptions
+		return nil
+	}
+}
+
 // NewNamespace creates a new namespace configured through NamespaceOption(s)
 func NewNamespace(opts ...NamespaceOption) (*Namespace, error) {
-	ns := &Namespace{
-		baseRetrier: NewBackoffRetrier(struct {
-			MaxRetries int
-			Factor     float64
-			Jitter     bool
-			Min        time.Duration
-			Max        time.Duration
-		}{
-			Factor:     2,
-			Min:        time.Second,
-			Max:        time.Minute,
-			MaxRetries: 10,
-		}),
-	}
+	ns := &Namespace{}
 
 	for _, opt := range opts {
 		err := opt(ns)
@@ -234,7 +228,7 @@ func (ns *Namespace) NewRPCLink(ctx context.Context, managementPath string) (*rp
 // NewAMQPLinks creates an AMQPLinks struct, which groups together the commonly needed links for
 // working with Service Bus.
 func (ns *Namespace) NewAMQPLinks(entityPath string, createLinkFunc CreateLinkFunc) AMQPLinks {
-	return newAMQPLinks(ns, entityPath, ns.baseRetrier, createLinkFunc)
+	return newAMQPLinks(ns, entityPath, ns.retryOptions, createLinkFunc)
 }
 
 // Close closes the current cached client.
@@ -309,61 +303,48 @@ func (ns *Namespace) startNegotiateClaimRenewer(ctx context.Context,
 	nextClaimRefreshDurationFn func(expirationTime time.Time, currentTime time.Time) time.Duration) (func() <-chan struct{}, error) {
 	audience := ns.GetEntityAudience(entityPath)
 
-	refreshClaim := func() (time.Time, error) {
-		retrier := ns.baseRetrier.Copy()
+	refreshClaim := func(ctx context.Context) (time.Time, error) {
+		ctx, span := ns.startSpanFromContext(ctx, tracing.SpanNegotiateClaim)
+		defer span.End()
 
-		var lastErr error
-		var expiration time.Time
+		amqpClient, clientRevision, err := nsGetAMQPClientImpl(ctx)
 
-		for retrier.Try(ctx) {
-			expiration, lastErr = func() (time.Time, error) {
-				ctx, span := ns.startSpanFromContext(ctx, tracing.SpanNegotiateClaim)
-				defer span.End()
-
-				amqpClient, clientRevision, err := nsGetAMQPClientImpl(ctx)
-
-				if err != nil {
-					span.Logger().Error(err)
-					return time.Time{}, err
-				}
-
-				token, expiration, err := ns.TokenProvider.GetTokenAsTokenProvider(audience)
-
-				if err != nil {
-					span.Logger().Error(err)
-					return time.Time{}, err
-				}
-
-				// You're not allowed to have multiple $cbs links open in a single connection.
-				// The current cbs.NegotiateClaim implementation automatically creates and shuts
-				// down it's own link so we have to guard against that here.
-				ns.negotiateClaimMu.Lock()
-				err = cbsNegotiateClaim(ctx, audience, amqpClient, token)
-				ns.negotiateClaimMu.Unlock()
-
-				if err != nil {
-					if shouldRecreateConnection(ctx, err) {
-						if err := ns.Recover(ctx, clientRevision); err != nil {
-							span.Logger().Error(fmt.Errorf("connection recovery failed: %w", err))
-						}
-					}
-
-					span.Logger().Error(err)
-					return time.Time{}, err
-				}
-
-				return expiration, nil
-			}()
-
-			if lastErr == nil {
-				break
-			}
+		if err != nil {
+			span.Logger().Error(err)
+			return time.Time{}, err
 		}
 
-		return expiration, lastErr
+		token, expiration, err := ns.TokenProvider.GetTokenAsTokenProvider(audience)
+
+		if err != nil {
+			span.Logger().Error(err)
+			return time.Time{}, err
+		}
+
+		// You're not allowed to have multiple $cbs links open in a single connection.
+		// The current cbs.NegotiateClaim implementation automatically creates and shuts
+		// down it's own link so we have to guard against that here.
+		ns.negotiateClaimMu.Lock()
+		err = cbsNegotiateClaim(ctx, audience, amqpClient, token)
+		ns.negotiateClaimMu.Unlock()
+
+		sbe := ToSBE(ctx, err)
+
+		if sbe != nil {
+			if sbe.RecoveryKind == RecoveryKindConn {
+				if err := ns.Recover(ctx, clientRevision); err != nil {
+					span.Logger().Error(fmt.Errorf("connection recovery failed: %w", err))
+				}
+			}
+
+			span.Logger().Error(err)
+			return time.Time{}, err
+		}
+
+		return expiration, nil
 	}
 
-	expiresOn, err := refreshClaim()
+	expiresOn, err := refreshClaim(ctx)
 
 	if err != nil {
 		return nil, err
@@ -373,15 +354,33 @@ func (ns *Namespace) startNegotiateClaimRenewer(ctx context.Context,
 	refreshCtx, cancel := context.WithCancel(context.Background())
 
 	go func() {
+	TokenRefreshLoop:
 		for {
 			select {
 			case <-refreshCtx.Done():
 				return
 			case <-time.After(nextClaimRefreshDurationFn(expiresOn, time.Now())):
-				tmpExpiresOn, err := refreshClaim() // logging will report the error for now
+				for {
+					err := Retry(refreshCtx, func(ctx context.Context, args RetryFnArgs) error {
+						tmpExpiresOn, err := refreshClaim(ctx)
 
-				if err == nil {
-					expiresOn = tmpExpiresOn
+						if err != nil {
+							return err
+						}
+
+						expiresOn = tmpExpiresOn
+						return nil
+					}, nil, nil)
+
+					if err == nil {
+						break
+					}
+
+					// if we fail our retries _and_ we've exceeded the window where our token would have
+					// been good we can just stop.
+					if time.Since(expiresOn) <= 0 {
+						break TokenRefreshLoop
+					}
 				}
 			}
 		}
@@ -404,16 +403,7 @@ func (ns *Namespace) getAMQPClientImpl(ctx context.Context) (*amqp.Client, uint6
 	}
 
 	var err error
-	retrier := ns.baseRetrier.Copy()
-
-	for retrier.Try(ctx) {
-		ns.client, err = ns.newClient(ctx)
-
-		if err == nil {
-			break
-		}
-	}
-
+	ns.client, err = ns.newClient(ctx)
 	return ns.client, ns.clientRevision, err
 }
 

@@ -130,7 +130,7 @@ func TestNewClientUnitTests(t *testing.T) {
 
 		// (really all part of the same functionality)
 		ns := &internal.Namespace{}
-		require.NoError(t, internal.NamespacesWithTokenCredential("mysb.windows.servicebus.net",
+		require.NoError(t, internal.NamespaceWithTokenCredential("mysb.windows.servicebus.net",
 			fakeTokenCredential)(ns))
 
 		require.EqualValues(t, ns.FQDN, "mysb.windows.servicebus.net")

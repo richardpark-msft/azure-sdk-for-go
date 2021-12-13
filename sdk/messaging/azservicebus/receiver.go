@@ -44,7 +44,7 @@ type Receiver struct {
 	receiveMode ReceiveMode
 
 	settler        settler
-	baseRetrier    internal.Retrier
+	retryOptions   *internal.RetryOptions
 	cleanupOnClose func()
 
 	lastPeekedSequenceNumber int64
@@ -101,13 +101,7 @@ func newReceiver(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanupO
 	receiver := &Receiver{
 		lastPeekedSequenceNumber: 0,
 		// TODO: make this configurable
-		baseRetrier: internal.NewBackoffRetrier(internal.BackoffRetrierParams{
-			Factor:     1.5,
-			Jitter:     true,
-			Min:        time.Second,
-			Max:        time.Minute,
-			MaxRetries: 10,
-		}),
+		retryOptions:   nil,
 		cleanupOnClose: cleanupOnClose,
 	}
 
@@ -132,7 +126,7 @@ func newReceiver(ns internal.NamespaceWithNewAMQPLinks, entity *entity, cleanupO
 
 	// 'nil' settler handles returning an error message for receiveAndDelete links.
 	if receiver.receiveMode == ReceiveModePeekLock {
-		receiver.settler = newMessageSettler(receiver.amqpLinks, receiver.baseRetrier)
+		receiver.settler = newMessageSettler(receiver.amqpLinks, receiver.retryOptions)
 	} else {
 		receiver.settler = (*messageSettler)(nil)
 	}

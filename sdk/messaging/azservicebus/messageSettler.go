@@ -11,8 +11,6 @@ import (
 	"github.com/Azure/go-amqp"
 )
 
-var errReceiveAndDeleteReceiver = errors.New("messages that are received in `ReceiveModeReceiveAndDelete` mode are not settleable")
-
 type settler interface {
 	CompleteMessage(ctx context.Context, message *ReceivedMessage) error
 	AbandonMessage(ctx context.Context, message *ReceivedMessage, options *AbandonMessageOptions) error
@@ -23,13 +21,13 @@ type settler interface {
 type messageSettler struct {
 	links                  internal.AMQPLinks
 	onlyDoBackupSettlement bool
-	baseRetrier            internal.Retrier
+	retryOptions           *internal.RetryOptions
 }
 
-func newMessageSettler(links internal.AMQPLinks, baseRetrier internal.Retrier) settler {
+func newMessageSettler(links internal.AMQPLinks, retryOptions *internal.RetryOptions) settler {
 	return &messageSettler{
-		links:       links,
-		baseRetrier: baseRetrier,
+		links:        links,
+		retryOptions: retryOptions,
 	}
 }
 
@@ -44,32 +42,29 @@ func (s *messageSettler) settleWithRetries(ctx context.Context, message *Receive
 		return errReceiveAndDeleteReceiver
 	}
 
-	retrier := s.baseRetrier.Copy()
-	var lastErr error
+	var lastLinkRevision uint64
 
-	for retrier.Try(ctx) {
-		var receiver internal.AMQPReceiver
-		var mgmt internal.MgmtClient
-		var linkRevision uint64
-
-		_, receiver, mgmt, linkRevision, lastErr = s.links.Get(ctx)
-
-		if lastErr != nil {
-			_ = s.links.RecoverIfNeeded(ctx, linkRevision, lastErr)
-			continue
+	err := internal.Retry(ctx, func(ctx context.Context, args internal.RetryFnArgs) error {
+		if err := s.links.RecoverIfNeeded(ctx, lastLinkRevision, args.LastErr); err != nil {
+			return err
 		}
 
-		lastErr := settleFn(receiver, mgmt)
+		_, receiver, mgmt, linkRevision, err := s.links.Get(ctx)
 
-		if lastErr != nil {
-			_ = s.links.RecoverIfNeeded(ctx, linkRevision, lastErr)
-			continue
+		if err != nil {
+			return err
 		}
 
-		break
-	}
+		lastLinkRevision = linkRevision
 
-	return lastErr
+		if err := settleFn(receiver, mgmt); err != nil {
+			return err
+		}
+
+		return nil
+	}, nil, nil)
+
+	return err
 }
 
 // CompleteMessage completes a message, deleting it from the queue or subscription.

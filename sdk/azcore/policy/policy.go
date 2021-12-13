@@ -68,7 +68,6 @@ type LogOptions struct {
 }
 
 // RetryOptions configures the retry policy's behavior.
-// Call NewRetryOptions() to create an instance with default values.
 type RetryOptions struct {
 	// MaxRetries specifies the maximum number of attempts a failed operation will be retried
 	// before producing an error.
