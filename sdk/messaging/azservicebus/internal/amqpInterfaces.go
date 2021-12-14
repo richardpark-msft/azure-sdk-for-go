@@ -61,6 +61,7 @@ type AMQPSenderCloser interface {
 // RPCLink is implemented by *rpc.Link
 type RPCLink interface {
 	Close(ctx context.Context) error
+	RPC(ctx context.Context, msg *amqp.Message) (*rpc.Response, error)
 	RetryableRPC(ctx context.Context, times int, delay time.Duration, msg *amqp.Message) (*rpc.Response, error)
 }
 

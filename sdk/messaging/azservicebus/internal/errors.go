@@ -23,7 +23,6 @@ type ErrNonRetriable struct {
 }
 
 func (e ErrNonRetriable) Error() string { return e.Message }
-func (e ErrNonRetriable) nonRetriable() {}
 
 // Error Conditions
 const (
@@ -110,12 +109,9 @@ func IsDrainingError(err error) bool {
 
 var amqpConditionsToRecoveryKind = map[amqp.ErrorCondition]recoveryKind{
 	// no recovery needed, these are temporary errors.
-	amqp.ErrorInternalError:                                     RecoveryKindNone, // "amqp:internal-error"
-	amqp.ErrorCondition("com.microsoft:server-busy"):            RecoveryKindNone,
-	amqp.ErrorCondition("com.microsoft:timeout"):                RecoveryKindNone,
-	amqp.ErrorCondition("com.microsoft:operation-cancelled"):    RecoveryKindNone,
-	amqp.ErrorCondition("client.sender:not-enough-link-credit"): RecoveryKindNone,
-	amqp.ErrorTransferLimitExceeded:                             RecoveryKindNone, // "amqp:link:transfer-limit-exceeded"
+	amqp.ErrorCondition("com.microsoft:server-busy"):         RecoveryKindNone,
+	amqp.ErrorCondition("com.microsoft:timeout"):             RecoveryKindNone,
+	amqp.ErrorCondition("com.microsoft:operation-cancelled"): RecoveryKindNone,
 
 	// Link recovery needed
 	amqp.ErrorDetachForced: RecoveryKindLink, // "amqp:link:detach-forced"
@@ -124,11 +120,14 @@ var amqpConditionsToRecoveryKind = map[amqp.ErrorCondition]recoveryKind{
 	amqp.ErrorConnectionForced: RecoveryKindConn, // "amqp:connection:forced"
 
 	// No recovery possible - this operation is non retriable.
-	amqp.ErrorCondition("com.microsoft:session-cannot-be-locked"): RecoveryKindNonRetriable,
-	amqp.ErrorCondition("com.microsoft:message-lock-lost"):        RecoveryKindNonRetriable,
+	amqp.ErrorMessageSizeExceeded:                                 RecoveryKindNonRetriable,
 	amqp.ErrorUnauthorizedAccess:                                  RecoveryKindNonRetriable, // creds are bad
 	amqp.ErrorNotFound:                                            RecoveryKindNonRetriable,
 	amqp.ErrorNotAllowed:                                          RecoveryKindNonRetriable,
+	amqp.ErrorInternalError:                                       RecoveryKindNonRetriable, // "amqp:internal-error"
+	amqp.ErrorCondition("com.microsoft:entity-disabled"):          RecoveryKindNonRetriable, // entity is disabled in the portal
+	amqp.ErrorCondition("com.microsoft:session-cannot-be-locked"): RecoveryKindNonRetriable,
+	amqp.ErrorCondition("com.microsoft:message-lock-lost"):        RecoveryKindNonRetriable,
 }
 
 func getRecoveryKind(ctxForLogging context.Context, err error) recoveryKind {

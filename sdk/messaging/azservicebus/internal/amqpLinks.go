@@ -50,7 +50,6 @@ type amqpLinks struct {
 	managementPath string
 	audience       string
 	createLink     CreateLinkFunc
-	retryOptions   *RetryOptions
 
 	mu sync.RWMutex
 
@@ -88,13 +87,12 @@ type CreateLinkFunc func(ctx context.Context, session AMQPSession) (AMQPSenderCl
 
 // NewAMQPLinks creates a session, starts the claim refresher and creates an associated
 // management link for a specific entity path.
-func newAMQPLinks(ns NamespaceForAMQPLinks, entityPath string, retryOptions *RetryOptions, createLink CreateLinkFunc) AMQPLinks {
+func newAMQPLinks(ns NamespaceForAMQPLinks, entityPath string, createLink CreateLinkFunc) AMQPLinks {
 	l := &amqpLinks{
 		entityPath:        entityPath,
 		managementPath:    fmt.Sprintf("%s/$management", entityPath),
 		audience:          ns.GetEntityAudience(entityPath),
 		createLink:        createLink,
-		retryOptions:      retryOptions,
 		closedPermanently: false,
 		revision:          1,
 		ns:                ns,

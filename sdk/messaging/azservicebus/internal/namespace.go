@@ -228,7 +228,7 @@ func (ns *Namespace) NewRPCLink(ctx context.Context, managementPath string) (*rp
 // NewAMQPLinks creates an AMQPLinks struct, which groups together the commonly needed links for
 // working with Service Bus.
 func (ns *Namespace) NewAMQPLinks(entityPath string, createLinkFunc CreateLinkFunc) AMQPLinks {
-	return newAMQPLinks(ns, entityPath, ns.retryOptions, createLinkFunc)
+	return newAMQPLinks(ns, entityPath, createLinkFunc)
 }
 
 // Close closes the current cached client.

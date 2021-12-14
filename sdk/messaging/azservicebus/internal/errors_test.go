@@ -90,47 +90,79 @@ func Test_isPermanentNetError(t *testing.T) {
 	require.True(t, isPermanentNetError(&permanentNetError{}))
 }
 
-func Test_retryableNoRecoveryNeeded(t *testing.T) {
-	retryableCodes := []string{
-		string(amqp.ErrorInternalError),
-		string(errorServerBusy),
-		string(errorTimeout),
-	}
-
-	for _, code := range retryableCodes {
-		sbe := ToSBE(context.Background(), &amqp.Error{
-			Condition: amqp.ErrorCondition(code),
-		})
-
-		require.EqualValues(t, RecoveryKindNone, sbe.RecoveryKind, fmt.Sprintf("Error for link recovery: %s", code))
-	}
-}
-
-func Test_retryableButLinkRecoveryRequired(t *testing.T) {
+func Test_recoveryKind(t *testing.T) {
 	ctx := context.Background()
 
-	linkErrorCodes := []string{
-		string(errorOperationCancelled),
-		"client.sender:not-enough-link-credit",
-		string(amqp.ErrorUnauthorizedAccess),
-		string(amqp.ErrorDetachForced),
-		string(amqp.ErrorConnectionForced),
-		string(amqp.ErrorTransferLimitExceeded),
-		"amqp: connection closed",
-		"unexpected frame",
-		string(amqp.ErrorNotFound),
-	}
+	t.Run("link", func(t *testing.T) {
+		linkErrorCodes := []string{
+			string(amqp.ErrorDetachForced),
+		}
 
-	for _, code := range linkErrorCodes {
-		sbe := ToSBE(ctx, &amqp.Error{
-			Condition: amqp.ErrorCondition(code),
+		for _, code := range linkErrorCodes {
+			t.Run(code, func(t *testing.T) {
+				sbe := ToSBE(ctx, &amqp.Error{Condition: amqp.ErrorCondition(code)})
+				require.EqualValues(t, RecoveryKindLink, sbe.RecoveryKind, fmt.Sprintf("requires link recovery: %s", code))
+			})
+		}
+
+		t.Run("sentintel errors", func(t *testing.T) {
+			sbe := ToSBE(ctx, amqp.ErrLinkClosed)
+			require.EqualValues(t, RecoveryKindLink, sbe.RecoveryKind)
+
+			sbe = ToSBE(ctx, amqp.ErrSessionClosed)
+			require.EqualValues(t, RecoveryKindLink, sbe.RecoveryKind)
 		})
+	})
 
-		require.EqualValues(t, RecoveryKindLink, sbe.RecoveryKind, fmt.Sprintf("Error for link recovery: %s", code))
-	}
+	t.Run("connection", func(t *testing.T) {
+		codes := []string{
+			string(amqp.ErrorConnectionForced),
+		}
 
-	sbe := ToSBE(ctx, errors.New("some non-amqp related error"))
-	require.EqualValues(t, RecoveryKindLink, sbe.RecoveryKind)
+		for _, code := range codes {
+			t.Run(code, func(t *testing.T) {
+				sbe := ToSBE(ctx, &amqp.Error{Condition: amqp.ErrorCondition(code)})
+				require.EqualValues(t, RecoveryKindConn, sbe.RecoveryKind, fmt.Sprintf("requires connection recovery: %s", code))
+			})
+		}
+
+		t.Run("sentinel errors", func(t *testing.T) {
+			sbe := ToSBE(ctx, amqp.ErrConnClosed)
+			require.EqualValues(t, RecoveryKindConn, sbe.RecoveryKind)
+		})
+	})
+
+	t.Run("nonretriable", func(t *testing.T) {
+		codes := []string{
+			string(amqp.ErrorTransferLimitExceeded),
+			string(amqp.ErrorInternalError),
+			string(amqp.ErrorUnauthorizedAccess),
+			string(amqp.ErrorNotFound),
+			string(amqp.ErrorMessageSizeExceeded),
+		}
+
+		for _, code := range codes {
+			t.Run(code, func(t *testing.T) {
+				sbe := ToSBE(ctx, &amqp.Error{Condition: amqp.ErrorCondition(code)})
+				require.EqualValues(t, RecoveryKindNonRetriable, sbe.RecoveryKind, fmt.Sprintf("cannot be recovered: %s", code))
+			})
+		}
+	})
+
+	t.Run("none", func(t *testing.T) {
+		codes := []string{
+			string(errorOperationCancelled),
+			string(errorServerBusy),
+			string(errorTimeout),
+		}
+
+		for _, code := range codes {
+			t.Run(code, func(t *testing.T) {
+				sbe := ToSBE(ctx, &amqp.Error{Condition: amqp.ErrorCondition(code)})
+				require.EqualValues(t, RecoveryKindNone, sbe.RecoveryKind, fmt.Sprintf("no recovery needed: %s", code))
+			})
+		}
+	})
 }
 
 func Test_recoveryKinds(t *testing.T) {
@@ -151,8 +183,8 @@ func Test_recoveryKinds(t *testing.T) {
 	// connection recovery scenario instead.
 	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, &permanentNetError{}).RecoveryKind)
 	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, fmt.Errorf("%w", &permanentNetError{})).RecoveryKind)
-	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, amqp.ErrLinkClosed).RecoveryKind)
-	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, fmt.Errorf("%w", amqp.ErrLinkClosed)).RecoveryKind)
+	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, amqp.ErrConnClosed).RecoveryKind)
+	require.EqualValues(t, RecoveryKindConn, ToSBE(ctx, fmt.Errorf("%w", amqp.ErrConnClosed)).RecoveryKind)
 }
 
 func Test_IsNonRetriable(t *testing.T) {

@@ -5,7 +5,6 @@ package azservicebus
 
 import (
 	"context"
-	"errors"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/go-amqp"
@@ -39,7 +38,7 @@ func (s *messageSettler) useManagementLink(m *ReceivedMessage, receiver internal
 
 func (s *messageSettler) settleWithRetries(ctx context.Context, message *ReceivedMessage, settleFn func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) error) error {
 	if s == nil {
-		return errReceiveAndDeleteReceiver
+		return internal.ErrNonRetriable{Message: "messages that are received in `ReceiveModeReceiveAndDelete` mode are not settleable"}
 	}
 
 	var lastLinkRevision uint64

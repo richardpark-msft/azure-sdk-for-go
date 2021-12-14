@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,10 +110,12 @@ func TestMessageSettlementUsingReceiverWithReceiveAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, messages)
 
-	require.EqualError(t, receiver.AbandonMessage(ctx, messages[0], nil), "messages that are received in `ReceiveModeReceiveAndDelete` mode are not settleable")
-	require.EqualError(t, receiver.CompleteMessage(ctx, messages[0]), "messages that are received in `ReceiveModeReceiveAndDelete` mode are not settleable")
+	require.EqualValues(t, internal.RecoveryKindNonRetriable, internal.ToSBE(ctx, receiver.AbandonMessage(ctx, messages[0], nil)))
+	require.EqualValues(t, internal.RecoveryKindNonRetriable, internal.ToSBE(ctx, receiver.CompleteMessage(ctx, messages[0])))
+	require.EqualValues(t, internal.RecoveryKindNonRetriable, internal.ToSBE(ctx, receiver.DeferMessage(ctx, messages[0], nil)))
+	require.EqualValues(t, internal.RecoveryKindNonRetriable, internal.ToSBE(ctx, receiver.DeadLetterMessage(ctx, messages[0], nil)))
+
 	require.EqualError(t, receiver.DeadLetterMessage(ctx, messages[0], nil), "messages that are received in `ReceiveModeReceiveAndDelete` mode are not settleable")
-	require.EqualError(t, receiver.DeferMessage(ctx, messages[0], nil), "messages that are received in `ReceiveModeReceiveAndDelete` mode are not settleable")
 }
 
 func TestDeferredMessages(t *testing.T) {

@@ -28,7 +28,7 @@ func TestAMQPLinks(t *testing.T) {
 	links := newAMQPLinks(&FakeNS{
 		Session:    fakeSession,
 		MgmtClient: fakeMgmtClient,
-	}, "entityPath", retryOptionsOnlyOnce, createLinkFunc)
+	}, "entityPath", createLinkFunc)
 
 	require.EqualValues(t, "entityPath", links.EntityPath())
 	require.EqualValues(t, "audience: entityPath", links.Audience())
@@ -78,6 +78,7 @@ func TestAMQPLinks(t *testing.T) {
 	require.Nil(t, receiver)
 	require.Nil(t, mgmt)
 	require.EqualValues(t, 0, linkRevision)
+	require.EqualValues(t, RecoveryKindNonRetriable, ToSBE(context.Background(), err).RecoveryKind)
 }
 
 type permanentNetError struct {
@@ -98,7 +99,7 @@ func TestAMQPLinksRecovery(t *testing.T) {
 
 	createLinkCalled := 0
 
-	tmpLinks := newAMQPLinks(ns, "entity path", retryOptionsOnlyOnce, func(ctx context.Context, session AMQPSession) (AMQPSenderCloser, AMQPReceiverCloser, error) {
+	tmpLinks := newAMQPLinks(ns, "entity path", func(ctx context.Context, session AMQPSession) (AMQPSenderCloser, AMQPReceiverCloser, error) {
 		createLinkCalled++
 		return sender, nil, nil
 	})
@@ -173,7 +174,7 @@ func TestAMQPLinks_Closed(t *testing.T) {
 		return nil, nil, nil
 	}
 
-	links := newAMQPLinks(&FakeNS{}, "hello", &RetryOptions{}, createLinks)
+	links := newAMQPLinks(&FakeNS{}, "hello", createLinks)
 	links.Close(context.Background(), true)
 
 	_, _, _, _, err := links.Get(context.Background())

@@ -22,7 +22,7 @@ type RetryFn func(ctx context.Context, fn func(ctx context.Context, args RetryFn
 // Retry runs a standard retry loop. It executes your passed in fn as the body of the loop.
 // 'isFatal' can be nil, and defaults to just checking that ServiceBusError(err).recoveryKind != recoveryKindNonRetriable.
 // It returns if it exceeds the number of configured retry options or if 'isFatal' returns true.
-func Retry(ctx context.Context, fn func(ctx context.Context, args RetryFnArgs) error, isFatal func(err error) bool, o *RetryOptions) error {
+func Retry(ctx context.Context, fn func(ctx context.Context, args RetryFnArgs) error, isFatalFn func(err error) bool, o *RetryOptions) error {
 	var ro RetryOptions
 
 	if o != nil {
@@ -39,14 +39,20 @@ func Retry(ctx context.Context, fn func(ctx context.Context, args RetryFnArgs) e
 			time.Sleep(sleep)
 		}
 
-		err := fn(ctx, RetryFnArgs{
+		err = fn(ctx, RetryFnArgs{
 			I:       i,
 			LastErr: err,
 		})
 
 		if err != nil {
-			if isFatal(err) {
-				return err
+			if isFatalFn != nil {
+				if isFatalFn(err) {
+					return err
+				}
+			} else {
+				if ToSBE(ctx, err).RecoveryKind == RecoveryKindNonRetriable {
+					return err
+				}
 			}
 
 			continue
@@ -64,11 +70,6 @@ type RetryOptions struct {
 	// before producing an error.
 	// The default value is three.  A value less than zero means one try and no retries.
 	MaxRetries int32
-
-	// TryTimeout indicates the maximum time allowed for any single try of an HTTP request.
-	// This is disabled by default.  Specify a value greater than zero to enable.
-	// NOTE: Setting this to a small value might cause premature HTTP request time-outs.
-	TryTimeout time.Duration
 
 	// RetryDelay specifies the initial amount of delay to use before retrying an operation.
 	// The delay increases exponentially with each retry up to the maximum specified by MaxRetryDelay.
