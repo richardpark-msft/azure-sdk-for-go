@@ -64,7 +64,7 @@ func ToSBE(loggingCtx context.Context, err error) *ServiceBusError {
 
 	sbe := &ServiceBusError{
 		inner:        err,
-		RecoveryKind: getRecoveryKind(loggingCtx, err),
+		RecoveryKind: GetRecoveryKind(loggingCtx, err),
 	}
 
 	return sbe
@@ -130,7 +130,7 @@ var amqpConditionsToRecoveryKind = map[amqp.ErrorCondition]recoveryKind{
 	amqp.ErrorCondition("com.microsoft:message-lock-lost"):        RecoveryKindNonRetriable,
 }
 
-func getRecoveryKind(ctxForLogging context.Context, err error) recoveryKind {
+func GetRecoveryKind(ctxForLogging context.Context, err error) recoveryKind {
 	if IsCancelError(err) {
 		return RecoveryKindNonRetriable
 	}

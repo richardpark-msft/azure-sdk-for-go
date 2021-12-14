@@ -327,20 +327,32 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 	//    user isn't actually waiting for anymore. So we make sure that #3 runs if the
 	//    link is still valid.
 	// Phase 3. <drain the link and leave it in a good state>
-	_, receiver, _, linksRevision, err := r.amqpLinks.Get(ctx)
 
-	if err != nil {
-		if err := r.amqpLinks.RecoverIfNeeded(ctx, linksRevision, err); err != nil {
-			return nil, err
+	var receiver internal.AMQPReceiver
+	var linksRevision uint64
+
+	internal.Retry(ctx, func(ctx context.Context, args internal.RetryFnArgs) error {
+		if args.LastErr != nil {
+			if err := r.amqpLinks.RecoverIfNeeded(ctx, linksRevision, args.LastErr); err != nil {
+				return err
+			}
 		}
 
-		return nil, err
-	}
+		_, tmpReceiver, _, tmpLinksRevision, err := r.amqpLinks.Get(ctx)
 
-	if err := receiver.IssueCredit(uint32(maxMessages)); err != nil {
-		_ = r.amqpLinks.RecoverIfNeeded(ctx, linksRevision, err)
-		return nil, err
-	}
+		if err != nil {
+			return err
+		}
+
+		receiver = tmpReceiver
+		linksRevision = tmpLinksRevision
+
+		if err := receiver.IssueCredit(uint32(maxMessages)); err != nil {
+			return err
+		}
+
+		return nil
+	}, nil, nil)
 
 	defaultTimeAfterFirstMessage := 20 * time.Millisecond
 
@@ -351,6 +363,12 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 	messages, err := r.getMessages(ctx, receiver, maxMessages, defaultTimeAfterFirstMessage)
 
 	if err != nil {
+		if internal.GetRecoveryKind(ctx, err) != internal.RecoveryKindNone {
+			if err := r.amqpLinks.Close(ctx, false); err != nil {
+				return nil, err
+			}
+		}
+
 		return nil, err
 	}
 

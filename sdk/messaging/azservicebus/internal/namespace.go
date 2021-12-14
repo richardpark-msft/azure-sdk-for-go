@@ -63,6 +63,7 @@ type NamespaceForAMQPLinks interface {
 	NewMgmtClient(ctx context.Context, links AMQPLinks) (MgmtClient, error)
 	GetEntityAudience(entityPath string) string
 	Recover(ctx context.Context, clientRevision uint64) error
+	CloseIfNeeded(ctx context.Context, clientRevision uint64) error
 }
 
 // NamespaceForAMQPLinks is the Namespace surface needed for the *MgmtClient.
@@ -267,11 +268,9 @@ func (ns *Namespace) Recover(ctx context.Context, clientRevision uint64) error {
 		ns.client = nil
 
 		// the error on close isn't critical
-		go func() {
-			span.Logger().Info(fmt.Sprintf("Closing old client (client:%d,passed in:%d)", ns.clientRevision, clientRevision))
-			err := oldClient.Close()
-			tab.For(ctx).Error(err)
-		}()
+		span.Logger().Info(fmt.Sprintf("Closing old client (client:%d,passed in:%d)", ns.clientRevision, clientRevision))
+		err := oldClient.Close()
+		tab.For(ctx).Error(err)
 	}
 
 	var err error
@@ -284,6 +283,30 @@ func (ns *Namespace) Recover(ctx context.Context, clientRevision uint64) error {
 	}
 
 	return err
+}
+
+func (ns *Namespace) CloseIfNeeded(ctx context.Context, clientRevision uint64) error {
+	ns.clientMu.Lock()
+	defer ns.clientMu.Unlock()
+
+	_, span := tab.StartSpan(ctx, tracing.SpanTempCloseClient)
+	defer span.End()
+
+	if ns.clientRevision > clientRevision {
+		span.Logger().Info(fmt.Sprintf("Skipping temp close, already recovered: %d vs %d", ns.clientRevision, clientRevision))
+		// we've already recovered since the client last tried.
+		return nil
+	}
+
+	if ns.client != nil {
+		oldClient := ns.client
+		ns.client = nil
+
+		// the error on close isn't critical
+		span.Logger().Info(fmt.Sprintf("Closing old client (client:%d,passed in:%d)", ns.clientRevision, clientRevision))
+		err := oldClient.Close()
+		tab.For(ctx).Error(err)
+	}
 }
 
 // negotiateClaim performs initial authentication and starts periodic refresh of credentials.

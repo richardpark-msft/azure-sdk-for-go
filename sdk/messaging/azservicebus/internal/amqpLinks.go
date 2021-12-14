@@ -28,6 +28,11 @@ type AMQPLinks interface {
 	// the link or, possibly, the connection.
 	RecoverIfNeeded(ctx context.Context, linksRevision uint64, err error) error
 
+	// CloseIfNeeded will check if an error is recoverable. If so, it'll close
+	// the proper links or connections, which will cause the next call to .Get()
+	// to recreate whatever is needed.
+	CloseIfNeeded(ctx context.Context, linksRevision uint64, err error) error
+
 	// Close will close the the link.
 	// If permanent is true the link will not be auto-recreated if Get/Recover
 	// are called. All functions will return `ErrLinksClosed`
@@ -145,10 +150,6 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 		return nil
 	}
 
-	if err := links.closeWithoutLocking(ctx, false); err != nil {
-		span.Logger().Error(err)
-	}
-
 	err := links.initWithoutLocking(ctx)
 
 	if err != nil {
@@ -163,6 +164,39 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 		tab.StringAttribute("revision_new", fmt.Sprintf("%d", links.revision)),
 	)
 	return nil
+}
+
+// CloseIfNeeded closes the links/connection as preparation for recovery.
+func (links *amqpLinks) CloseIfNeeded(ctx context.Context, linksRevision uint64, err error) recoveryKind {
+	links.mu.RLock()
+	currentRev := links.revision
+	closedPermanently := links.closedPermanently
+	links.mu.RUnlock()
+
+	if closedPermanently || currentRev > linksRevision {
+		// we've already recovered.
+		return RecoveryKindNone
+	}
+
+	sbe := ToSBE(ctx, err)
+
+	switch sbe.RecoveryKind {
+	case RecoveryKindConn:
+		// close the link and the connection
+		_ = links.Close(ctx, false)
+		_ = links.ns.CloseIfNeeded(ctx, links.clientRevision)
+	case RecoveryKindLink:
+		// close just the link
+		_ = links.Close(ctx, false)
+	case RecoveryKindNonRetriable:
+		// we're done, no recovery possible
+	case RecoveryKindNone:
+		// no recovery needed, we can just try the operation again
+	default:
+		panic(fmt.Sprintf("Unhandled recovery kind %s", sbe.RecoveryKind))
+	}
+
+	return sbe.RecoveryKind
 }
 
 // Recover will recover the links or the connection, depending
@@ -190,6 +224,13 @@ func (links *amqpLinks) recoverImpl(ctx context.Context, linksRevision uint64, o
 
 	sbe := ToSBE(ctx, origErr)
 
+	recoveryKind := links.CloseIfNeeded(ctx, linksRevision, origErr)
+
+	if recoveryKind == RecoveryKindNone {
+		// no recovery needed.
+		return nil
+	}
+
 	if sbe.RecoveryKind == RecoveryKindLink {
 		span.AddAttributes(
 			tab.StringAttribute("recovery_kind", "link"),
@@ -214,7 +255,7 @@ func (links *amqpLinks) recoverImpl(ctx context.Context, linksRevision uint64, o
 		}
 
 		// unconditionally recover the link if the connection died.
-		if err := links.recoverLink(ctx, nil); err != nil {
+		if err := links.recoverLink(ctx); err != nil {
 			span.Logger().Error(fmt.Errorf("failed to recover links after connection restarted: %w", err))
 			return err
 		}
