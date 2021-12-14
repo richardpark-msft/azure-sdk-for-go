@@ -17,8 +17,6 @@ type RetryFnArgs struct {
 	LastErr error
 }
 
-type RetryFn func(ctx context.Context, fn func(ctx context.Context, args RetryFnArgs) error, isFatal func(err error) bool, o *RetryOptions) error
-
 // Retry runs a standard retry loop. It executes your passed in fn as the body of the loop.
 // 'isFatal' can be nil, and defaults to just checking that ServiceBusError(err).recoveryKind != recoveryKindNonRetriable.
 // It returns if it exceeds the number of configured retry options or if 'isFatal' returns true.
