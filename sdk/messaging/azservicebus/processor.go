@@ -284,14 +284,14 @@ func (p *processor) subscribe() error {
 	defer p.wg.Done()
 
 	for {
-		_, receiver, _, linkRevision, err := p.amqpLinks.Get(p.receiversCtx)
+		_, receiver, _, linkRevision, sbe := p.amqpLinks.Get(p.receiversCtx)
 
-		if err != nil {
-			if internal.IsCancelError(err) {
-				return err
+		if sbe != nil {
+			if internal.IsCancelError(sbe) {
+				return sbe
 			}
 
-			if err := p.amqpLinks.RecoverIfNeeded(p.receiversCtx, linkRevision, err); err != nil {
+			if err := p.amqpLinks.RecoverIfNeeded(p.receiversCtx, linkRevision, sbe); err != nil {
 				p.userErrorHandler(err)
 				return err
 			}

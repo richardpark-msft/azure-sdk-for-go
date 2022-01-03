@@ -30,6 +30,8 @@ func Run(remainingArgs []string) {
 		ec = ConstantlyUpdateQueue(remainingArgs[1:])
 	case "tempqueue":
 		ec = CreateTempQueue(remainingArgs[1:])
+	case "send":
+		ec = SendMessages(remainingArgs[1:])
 	default:
 		onBadCommand()
 	}

@@ -116,7 +116,8 @@ func TestAMQPLinksRecovery(t *testing.T) {
 	require.False(t, links.closedPermanently, "link should still be usable")
 	require.Empty(t, ns.clientRevisions, "no connection recoveries happened")
 
-	require.Nil(t, links.RecoverIfNeeded(ctx, 0, errors.New("Passes through")))
+	err := links.RecoverIfNeeded(ctx, 0, errors.New("Errors not covered by any of our error handling are considered nonretriable"))
+	assertNonRetriable(t, "Errors not covered by any of our error handling are considered nonretriable", err)
 	require.EqualValues(t, 0, sess.closed)
 	require.EqualValues(t, 0, ns.recovered)
 	require.EqualValues(t, 0, createLinkCalled, "new links aren't needed")
@@ -124,7 +125,8 @@ func TestAMQPLinksRecovery(t *testing.T) {
 	require.Empty(t, ns.clientRevisions, "no connection recoveries happened")
 
 	// now let's initiate a recovery at the connection level
-	require.NoError(t, links.RecoverIfNeeded(ctx, 0, permanentNetError{}), permanentNetError{}.Error())
+	err = links.RecoverIfNeeded(ctx, 0, permanentNetError{})
+	assertRetriable(t, err)
 	require.EqualValues(t, 1, ns.recovered, "client gets recovered")
 	require.EqualValues(t, 1, sender.Closed, "link is closed")
 	require.EqualValues(t, 1, createLinkCalled, "link is created")
@@ -143,7 +145,8 @@ func TestAMQPLinksRecovery(t *testing.T) {
 	createLinkCalled = 0
 
 	// let's do just a link level one
-	require.NoError(t, links.RecoverIfNeeded(ctx, links.revision+1, amqp.ErrLinkDetached), amqp.ErrLinkDetached.Error())
+	err = links.RecoverIfNeeded(ctx, links.revision+1, amqp.ErrLinkDetached)
+	assertRetriable(t, err)
 	require.EqualValues(t, 0, ns.recovered)
 	require.EqualValues(t, 1, sender.Closed)
 	require.EqualValues(t, 1, createLinkCalled)

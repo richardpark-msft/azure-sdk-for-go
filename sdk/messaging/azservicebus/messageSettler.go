@@ -39,13 +39,13 @@ func (s *messageSettler) useManagementLink(m *ReceivedMessage, receiver internal
 		m.rawAMQPMessage.LinkName() != receiver.LinkName()
 }
 
-func (s *messageSettler) settleWithRetries(ctx context.Context, message *ReceivedMessage, settleFn func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) error) error {
+func (s *messageSettler) settleWithRetries(ctx context.Context, message *ReceivedMessage, settleFn func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) *internal.ServiceBusError) error {
 	if s == nil {
 		return errReceiveAndDeleteReceiver
 	}
 
 	retrier := s.baseRetrier.Copy()
-	var lastErr error
+	var lastErr *internal.ServiceBusError
 
 	for retrier.Try(ctx) {
 		var receiver internal.AMQPReceiver
@@ -74,11 +74,11 @@ func (s *messageSettler) settleWithRetries(ctx context.Context, message *Receive
 
 // CompleteMessage completes a message, deleting it from the queue or subscription.
 func (s *messageSettler) CompleteMessage(ctx context.Context, message *ReceivedMessage) error {
-	return s.settleWithRetries(ctx, message, func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) error {
+	return s.settleWithRetries(ctx, message, func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) *internal.ServiceBusError {
 		if s.useManagementLink(message, receiver) {
 			return mgmt.SendDisposition(ctx, bytesToAMQPUUID(message.LockToken), internal.Disposition{Status: internal.CompletedDisposition}, nil)
 		} else {
-			return receiver.AcceptMessage(ctx, message.rawAMQPMessage)
+			return internal.ToSBE(ctx, receiver.AcceptMessage(ctx, message.rawAMQPMessage))
 		}
 	})
 }
@@ -92,7 +92,7 @@ type AbandonMessageOptions struct {
 // This will increment its delivery count, and potentially cause it to be dead lettered
 // depending on your queue or subscription's configuration.
 func (s *messageSettler) AbandonMessage(ctx context.Context, message *ReceivedMessage, options *AbandonMessageOptions) error {
-	return s.settleWithRetries(ctx, message, func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) error {
+	return s.settleWithRetries(ctx, message, func(receiver internal.AMQPReceiver, mgmt internal.MgmtClient) *internal.ServiceBusError {
 		if s.useManagementLink(message, receiver) {
 			d := internal.Disposition{
 				Status: internal.AbandonedDisposition,
@@ -113,7 +113,7 @@ func (s *messageSettler) AbandonMessage(ctx context.Context, message *ReceivedMe
 			annotations = newAnnotations(options.PropertiesToModify)
 		}
 
-		return receiver.ModifyMessage(ctx, message.rawAMQPMessage, false, false, annotations)
+		return internal.ToSBE(ctx, receiver.ModifyMessage(ctx, message.rawAMQPMessage, false, false, annotations))
 	})
 }
 

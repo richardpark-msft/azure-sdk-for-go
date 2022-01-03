@@ -55,7 +55,7 @@ func TestStreamingBatch(t *testing.T) {
 	}
 	stats := NewStats("")
 
-	streamingBatch, err := NewStreamingMessageBatch(ctx, sender, stats)
+	streamingBatch, err := newStreamingMessageBatchImpl(ctx, sender, stats)
 	require.NoError(t, err)
 	require.NotNil(t, streamingBatch.currentBatch, "first batch is auto-created right when we create the first batch")
 
@@ -100,7 +100,7 @@ func TestStreamingBatchTooLargeToFitByItself(t *testing.T) {
 	}
 	stats := NewStats("")
 
-	streamingBatch, err := NewStreamingMessageBatch(ctx, sender, stats)
+	streamingBatch, err := newStreamingMessageBatchImpl(ctx, sender, stats)
 	require.NoError(t, err)
 
 	// this next message won't fix into the batch, so now we'll:

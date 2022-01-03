@@ -14,15 +14,6 @@ import (
 	"github.com/devigned/tab"
 )
 
-type errClosedPermanently struct{}
-
-func (e errClosedPermanently) Error() string { return "Link has been closed permanently" }
-func (e errClosedPermanently) NonRetriable() {}
-
-func ShouldRecover(ctx context.Context, err error) bool {
-	return shouldRecreateConnection(ctx, err) || shouldRecreateLink(err)
-}
-
 type AMQPLinks interface {
 	EntityPath() string
 	ManagementPath() string
@@ -31,11 +22,12 @@ type AMQPLinks interface {
 
 	// Get will initialize a session and call its link.linkCreator function.
 	// If this link has been closed via Close() it will return an non retriable error.
-	Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, error)
+	Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, *ServiceBusError)
 
 	// RecoverIfNeeded will check if an error requires recovery, and will recover
 	// the link or, possibly, the connection.
-	RecoverIfNeeded(ctx context.Context, linksRevision uint64, err error) error
+	// If the error is fatal it will conform to the errorinfo.NonRetriable interface.
+	RecoverIfNeeded(ctx context.Context, linksRevision uint64, err *ServiceBusError) *ServiceBusError
 
 	// Close will close the the link.
 	// If permanent is true the link will not be auto-recreated if Get/Recover
@@ -93,7 +85,7 @@ type amqpLinks struct {
 
 // CreateLinkFunc creates the links, using the given session. Typically you'll only create either an
 // *amqp.Sender or a *amqp.Receiver. AMQPLinks handles it either way.
-type CreateLinkFunc func(ctx context.Context, session AMQPSession) (AMQPSenderCloser, AMQPReceiverCloser, error)
+type CreateLinkFunc func(ctx context.Context, session AMQPSession) (AMQPSenderCloser, AMQPReceiverCloser, *ServiceBusError)
 
 // NewAMQPLinks creates a session, starts the claim refresher and creates an associated
 // management link for a specific entity path.
@@ -119,7 +111,7 @@ func (links *amqpLinks) ManagementPath() string {
 
 // recoverLink will recycle all associated links (mgmt, receiver, sender and session)
 // and recreate them using the link.linkCreator function.
-func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint64) error {
+func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint64) *ServiceBusError {
 	ctx, span := tab.StartSpan(ctx, tracing.SpanRecoverLink)
 	defer span.End()
 
@@ -130,7 +122,7 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 
 	if closedPermanently {
 		span.AddAttributes(tab.StringAttribute("outcome", "was_closed_permanently"))
-		return errClosedPermanently{}
+		return sberrClosedPermanently
 	}
 
 	if theirLinkRevision != nil && ourLinkRevision > *theirLinkRevision {
@@ -160,11 +152,11 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 		span.Logger().Error(err)
 	}
 
-	err := links.initWithoutLocking(ctx)
+	sbe := links.initWithoutLocking(ctx)
 
-	if err != nil {
-		span.AddAttributes(tab.StringAttribute("init_error", err.Error()))
-		return err
+	if sbe != nil {
+		span.AddAttributes(tab.StringAttribute("init_error", sbe.String()))
+		return sbe
 	}
 
 	links.revision++
@@ -179,95 +171,92 @@ func (links *amqpLinks) recoverLink(ctx context.Context, theirLinkRevision *uint
 // Recover will recover the links or the connection, depending
 // on the severity of the error. This function uses the `baseRetrier`
 // defined in the links struct.
-func (links *amqpLinks) RecoverIfNeeded(ctx context.Context, linksRevision uint64, origErr error) error {
-	ctx, span := tab.StartSpan(ctx, tracing.SpanRecover)
-	defer span.End()
+func (links *amqpLinks) RecoverIfNeeded(ctx context.Context, linksRevision uint64, origErr *ServiceBusError) *ServiceBusError {
+	var sbe *ServiceBusError
 
-	var err error = origErr
-
-	retrier := links.baseRetrier.Copy()
-
-	for retrier.Try(ctx) {
-		span.AddAttributes(tab.StringAttribute("recover_attempt", fmt.Sprintf("%d", retrier.CurrentTry())))
-
-		err = links.recoverImpl(ctx, retrier.CurrentTry(), linksRevision, err)
-
-		if err == nil {
-			return nil
-		}
-	}
-
-	return err
-}
-
-func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision uint64, origErr error) error {
-	_, span := tab.StartSpan(ctx, tracing.SpanRecoverLink)
-	defer span.End()
-
-	if origErr == nil || IsCancelError(origErr) {
-		return nil
-	}
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-
-	span.AddAttributes(tab.Int64Attribute("attempt", int64(try)))
-
-	if shouldRecreateLink(origErr) {
-		span.AddAttributes(
-			tab.StringAttribute("recovery_kind", "link"),
-			tab.StringAttribute("error", origErr.Error()),
-			tab.StringAttribute("error_type", fmt.Sprintf("%T", origErr)))
-
-		if err := links.recoverLink(ctx, &linksRevision); err != nil {
-			span.AddAttributes(tab.StringAttribute("recoveryFailure", err.Error()))
-			return err
+	if sbe = links.recoverImpl(ctx, 0, linksRevision, origErr); sbe != nil {
+		if sbe.RecoveryKind == recoveryKindNonRetriable {
+			return sbe
 		}
 
-		return nil
-	} else if shouldRecreateConnection(ctx, origErr) {
-		span.AddAttributes(
-			tab.StringAttribute("recovery_kind", "connection"),
-			tab.StringAttribute("error", origErr.Error()),
-			tab.StringAttribute("error_type", fmt.Sprintf("%T", origErr)))
-
-		if err := links.recoverConnection(ctx); err != nil {
-			span.Logger().Error(fmt.Errorf("failed to recreate connection: %w", err))
-			return err
-		}
-
-		// unconditionally recover the link if the connection died.
-		if err := links.recoverLink(ctx, nil); err != nil {
-			span.Logger().Error(fmt.Errorf("failed to recover links after connection restarted: %w", err))
-			return err
-		}
-
-		return nil
+		return sbe
 	}
-
-	span.AddAttributes(
-		tab.StringAttribute("recovery", "none"),
-		tab.StringAttribute("error", origErr.Error()),
-		tab.StringAttribute("errorType", fmt.Sprintf("%T", origErr)))
 
 	return nil
 }
 
-func (links *amqpLinks) recoverConnection(ctx context.Context) error {
+func (links *amqpLinks) recoverImpl(ctx context.Context, try int, linksRevision uint64, sbe *ServiceBusError) *ServiceBusError {
+	if sbe == nil {
+		return nil
+	}
+
+	if sbe.RecoveryKind == recoveryKindNone {
+		return sbe
+	}
+
+	_, span := tab.StartSpan(ctx, tracing.SpanRecover)
+	defer span.End()
+
+	span.AddAttributes(
+		tab.StringAttribute("recovery_kind", string(sbe.RecoveryKind)),
+		tab.Int64Attribute("attempt", int64(try)),
+	)
+
+	switch sbe.RecoveryKind {
+	case recoveryKindNonRetriable:
+		span.AddAttributes(
+			tab.StringAttribute("error", sbe.String()),
+			tab.StringAttribute("error_verbose", fmt.Sprintf("%#v", sbe.AsError())))
+		return sbe
+	case recoveryKindLink:
+		span.AddAttributes(
+			tab.StringAttribute("error", sbe.String()),
+			tab.StringAttribute("error_verbose", fmt.Sprintf("%#v", sbe.inner)))
+
+		if sbe := links.recoverLink(ctx, &linksRevision); sbe != nil {
+			span.AddAttributes(tab.StringAttribute("recoveryFailure", sbe.String()))
+			return sbe
+		}
+
+		return sbe
+	case recoveryKindConnection:
+		span.AddAttributes(
+			tab.StringAttribute("error", sbe.String()),
+			tab.StringAttribute("error_verbose", fmt.Sprintf("%#v", sbe.inner)))
+
+		if sbe := links.recoverConnection(ctx); sbe != nil {
+			span.AddAttributes(tab.StringAttribute("recoveryFailure", sbe.String()))
+			return sbe
+		}
+
+		// unconditionally recover the link if the connection died.
+		if sbe := links.recoverLink(ctx, nil); sbe != nil {
+			span.AddAttributes(tab.StringAttribute("recoveryFailure", sbe.String()))
+			return sbe
+		}
+
+		return sbe
+	default:
+		span.AddAttributes(
+			tab.StringAttribute("error", sbe.String()),
+			tab.StringAttribute("errorType", fmt.Sprintf("%T", sbe.inner)))
+
+		return sbe
+	}
+}
+
+func (links *amqpLinks) recoverConnection(ctx context.Context) *ServiceBusError {
 	tab.For(ctx).Info("Connection is dead, recovering")
 
 	links.mu.RLock()
 	clientRevision := links.clientRevision
 	links.mu.RUnlock()
 
-	err := links.ns.Recover(ctx, clientRevision)
+	sbe := links.ns.Recover(ctx, clientRevision)
 
-	if err != nil {
-		tab.For(ctx).Error(fmt.Errorf("Recover connection failure: %w", err))
-		return err
+	if sbe != nil {
+		tab.For(ctx).Error(fmt.Errorf("Recover connection failure: %w", sbe))
+		return sbe
 	}
 
 	return nil
@@ -275,13 +264,14 @@ func (links *amqpLinks) recoverConnection(ctx context.Context) error {
 
 // Get will initialize a session and call its link.linkCreator function.
 // If this link has been closed via Close() it will return an non retriable error.
-func (l *amqpLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, error) {
+// Returns a *serviceBusError
+func (l *amqpLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, *ServiceBusError) {
 	l.mu.RLock()
 	sender, receiver, mgmt, revision, closedPermanently := l.sender, l.receiver, l.mgmt, l.revision, l.closedPermanently
 	l.mu.RUnlock()
 
 	if closedPermanently {
-		return nil, nil, nil, 0, errClosedPermanently{}
+		return nil, nil, nil, 0, sberrClosedPermanently
 	}
 
 	if sender != nil || receiver != nil {
@@ -291,8 +281,8 @@ func (l *amqpLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClie
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	if err := l.initWithoutLocking(ctx); err != nil {
-		return nil, nil, nil, 0, err
+	if sbe := l.initWithoutLocking(ctx); sbe != nil {
+		return nil, nil, nil, 0, sbe
 	}
 
 	return l.sender, l.receiver, l.mgmt, l.revision, nil
@@ -324,51 +314,52 @@ func (l *amqpLinks) Close(ctx context.Context, permanent bool) error {
 }
 
 // initWithoutLocking will create a new link, unconditionally.
-func (l *amqpLinks) initWithoutLocking(ctx context.Context) error {
-	var err error
-	l.cancelAuthRefreshLink, err = l.ns.NegotiateClaim(ctx, l.entityPath)
+func (l *amqpLinks) initWithoutLocking(ctx context.Context) *ServiceBusError {
+	var sbe *ServiceBusError
+	l.cancelAuthRefreshLink, sbe = l.ns.NegotiateClaim(ctx, l.entityPath)
 
-	if err != nil {
+	if sbe != nil {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after negotiateClaim: %s", err.Error()))
 		}
-		return err
+
+		return sbe
 	}
 
-	l.cancelAuthRefreshMgmtLink, err = l.ns.NegotiateClaim(ctx, l.managementPath)
+	l.cancelAuthRefreshMgmtLink, sbe = l.ns.NegotiateClaim(ctx, l.managementPath)
 
-	if err != nil {
+	if sbe != nil {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after negotiate claim for mgmt link: %s", err.Error()))
 		}
-		return err
+		return sbe
 	}
 
-	l.session, l.clientRevision, err = l.ns.NewAMQPSession(ctx)
+	l.session, l.clientRevision, sbe = l.ns.NewAMQPSession(ctx)
 
-	if err != nil {
+	if sbe != nil {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after creating AMQP session: %s", err.Error()))
 		}
-		return err
+		return sbe
 	}
 
-	l.sender, l.receiver, err = l.createLink(ctx, l.session)
+	l.sender, l.receiver, sbe = l.createLink(ctx, l.session)
 
-	if err != nil {
+	if sbe != nil {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after creating link: %s", err.Error()))
 		}
-		return err
+		return sbe
 	}
 
-	l.mgmt, err = l.ns.NewMgmtClient(ctx, l)
+	l.mgmt, sbe = l.ns.NewMgmtClient(ctx, l)
 
-	if err != nil {
+	if sbe != nil {
 		if err := l.closeWithoutLocking(ctx, false); err != nil {
 			tab.For(ctx).Debug(fmt.Sprintf("Failure during link cleanup after creating mgmt client: %s", err.Error()))
 		}
-		return err
+		return sbe
 	}
 
 	return nil

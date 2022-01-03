@@ -19,13 +19,13 @@ type (
 		queueOrTopic   string
 		cleanupOnClose func()
 		links          internal.AMQPLinks
+		baseRetrier    internal.Retrier
 	}
 )
 
 // tracing
 const (
-	spanNameSendMessage string = "sb.sender.SendMessage"
-	spanNameSendBatch   string = "sb.sender.SendBatch"
+	spanNameSend string = "sb.sender.Send"
 )
 
 // MessageBatchOptions contains options for the `Sender.NewMessageBatch` function.
@@ -56,31 +56,13 @@ func (s *Sender) NewMessageBatch(ctx context.Context, options *MessageBatchOptio
 
 // SendMessage sends a Message to a queue or topic.
 func (s *Sender) SendMessage(ctx context.Context, message *Message) error {
-	ctx, span := s.startProducerSpanFromContext(ctx, spanNameSendMessage)
-	defer span.End()
-
-	sender, _, _, _, err := s.links.Get(ctx)
-
-	if err != nil {
-		return err
-	}
-
-	return sender.Send(ctx, message.toAMQPMessage())
+	return s.sendWithRetries(ctx, message.toAMQPMessage())
 }
 
 // SendMessageBatch sends a MessageBatch to a queue or topic.
 // Message batches can be created using `Sender.NewMessageBatch`.
 func (s *Sender) SendMessageBatch(ctx context.Context, batch *MessageBatch) error {
-	ctx, span := s.startProducerSpanFromContext(ctx, spanNameSendBatch)
-	defer span.End()
-
-	sender, _, _, _, err := s.links.Get(ctx)
-
-	if err != nil {
-		return err
-	}
-
-	return sender.Send(ctx, batch.toAMQPMessage())
+	return s.sendWithRetries(ctx, batch.toAMQPMessage())
 }
 
 // ScheduleMessages schedules a slice of Messages to appear on Service Bus Queue/Subscription at a later time.
@@ -143,6 +125,13 @@ func newSender(ns internal.NamespaceWithNewAMQPLinks, queueOrTopic string, clean
 	sender := &Sender{
 		queueOrTopic:   queueOrTopic,
 		cleanupOnClose: cleanupOnClose,
+		baseRetrier: internal.NewBackoffRetrier(internal.BackoffRetrierParams{
+			Factor:     2,
+			Jitter:     true,
+			Min:        10 * time.Millisecond,
+			Max:        1024 * time.Millisecond,
+			MaxRetries: 10,
+		}),
 	}
 
 	sender.links = ns.NewAMQPLinks(queueOrTopic, sender.createSenderLink)
@@ -157,4 +146,48 @@ func (s *Sender) startProducerSpanFromContext(ctx context.Context, operationName
 		tab.StringAttribute("message_bus.destination", s.links.Audience()),
 	)
 	return ctx, span
+}
+
+func (s *Sender) sendWithRetries(ctx context.Context, message *amqp.Message) error {
+	retrier := s.baseRetrier.Copy()
+
+	var err error
+
+	for retrier.Try(ctx) {
+		ctx, span := s.startProducerSpanFromContext(ctx, spanNameSend)
+		span.AddAttributes(tab.Int64Attribute("attempt", int64(retrier.CurrentTry())))
+
+		var sender internal.AMQPSender
+		var linksRevision uint64
+		sender, _, _, linksRevision, err = s.links.Get(ctx)
+
+		if err != nil {
+			if internal.IsNonRetriable(err) {
+				break
+			}
+
+			span.AddAttributes(tab.StringAttribute("Error(links)", err.Error()))
+			span.End()
+			continue
+		}
+
+		err = sender.Send(ctx, message)
+
+		if err != nil {
+			asSBE := s.links.RecoverIfNeeded(ctx, linksRevision, err)
+			span.AddAttributes(tab.StringAttribute("Error(send)", asSBE.Error()))
+
+			if internal.IsNonRetriable(asSBE) {
+				break
+			}
+
+			span.End()
+			continue
+		}
+
+		span.End()
+		break
+	}
+
+	return err
 }

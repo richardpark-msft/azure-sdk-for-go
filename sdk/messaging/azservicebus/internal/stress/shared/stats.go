@@ -81,20 +81,22 @@ func newStatsPrinter(ctx context.Context, prefix string, interval time.Duration,
 
 			sp.mu.RLock()
 
-			log.Printf("Stats:")
+			if len(sp.all) > 0 {
+				log.Printf("Stats:")
 
-			for _, stats := range sp.all {
-				log.Printf("  %s", stats.String())
+				for _, stats := range sp.all {
+					log.Printf("  %s", stats.String())
 
-				if stats.Sent > 0 {
-					sp.tc.TrackMetric(fmt.Sprintf("%s.TotalSent", stats.name), float64(stats.Sent))
+					if stats.Sent > 0 {
+						sp.tc.TrackMetric(fmt.Sprintf("%s.TotalSent", stats.name), float64(stats.Sent))
+					}
+
+					if stats.Received > 0 {
+						sp.tc.TrackMetric(fmt.Sprintf("%s.TotalReceived", stats.name), float64(stats.Received))
+					}
+
+					sp.tc.TrackMetric(fmt.Sprintf("%s.TotalErrors", stats.name), float64(stats.Errors))
 				}
-
-				if stats.Received > 0 {
-					sp.tc.TrackMetric(fmt.Sprintf("%s.TotalReceived", stats.name), float64(stats.Received))
-				}
-
-				sp.tc.TrackMetric(fmt.Sprintf("%s.TotalErrors", stats.name), float64(stats.Errors))
 			}
 
 			sp.mu.RUnlock()

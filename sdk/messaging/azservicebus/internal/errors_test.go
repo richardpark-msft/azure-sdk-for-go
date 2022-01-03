@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/internal/errorinfo"
 	"github.com/Azure/go-amqp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,38 +123,78 @@ func Test_isRetryableAMQPError(t *testing.T) {
 	require.False(t, isRetryableAMQPError(ctx, errors.New("some non-amqp related error")))
 }
 
-func Test_shouldRecreateLink(t *testing.T) {
-	require.False(t, shouldRecreateLink(nil))
+func assertNonRetriable(t *testing.T, expectedMsg string, err error) {
+	var nonRetriable errorinfo.NonRetriable
+	require.True(t, errors.As(err, &nonRetriable), "fatal errors are not retriable")
+	require.EqualValues(t, expectedMsg, nonRetriable.Error())
+}
 
-	require.True(t, shouldRecreateLink(amqp.ErrLinkDetached))
+func assertRetriable(t *testing.T, err error) {
+	var nonRetriable errorinfo.NonRetriable
+	require.False(t, errors.As(err, &nonRetriable), "should be retriable (ie, no marker method)")
+}
 
+func TestServiceBusError_Nil(t *testing.T) {
+	sbe := ToSBE(context.Background(), nil)
+	require.Nil(t, sbe)
+}
+
+func TestServiceBusError_RecoveryLink(t *testing.T) {
 	// going to treat these as "connection troubles" and throw them into the
 	// connection recovery scenario instead.
-	require.False(t, shouldRecreateLink(amqp.ErrLinkClosed))
-	require.False(t, shouldRecreateLink(amqp.ErrSessionClosed))
+	linkRecoveryErrors := []error{
+		amqp.ErrLinkDetached,
+		amqp.ErrLinkClosed,
+		amqp.ErrLinkDetached,
+	}
+
+	for _, origErr := range linkRecoveryErrors {
+		t.Run(fmt.Sprintf("error: %s", origErr.Error()), func(t *testing.T) {
+			sbe := ToSBE(context.Background(), origErr)
+			require.EqualValues(t, recoveryKindLink, sbe.RecoveryKind)
+
+			sbe = ToSBE(context.Background(), fmt.Errorf("this error is wrapped: %w", origErr))
+			require.EqualValues(t, recoveryKindLink, sbe.RecoveryKind)
+		})
+	}
 }
 
-func Test_shouldRecreateConnection(t *testing.T) {
-	ctx := context.Background()
+func TestServiceBusError_RecoveryConnection(t *testing.T) {
+	connectionErrors := []error{
+		&permanentNetError{},
+		&amqp.Error{Condition: amqp.ErrorConnectionForced},
+		amqp.ErrConnClosed,
+	}
 
-	require.False(t, shouldRecreateConnection(ctx, nil))
-	require.True(t, shouldRecreateConnection(ctx, &permanentNetError{}))
-	require.True(t, shouldRecreateConnection(ctx, fmt.Errorf("%w", &permanentNetError{})))
+	for _, origErr := range connectionErrors {
+		sbe := ToSBE(context.Background(), origErr)
+		require.EqualValues(t, recoveryKindConnection, sbe.RecoveryKind)
 
-	require.False(t, shouldRecreateLink(amqp.ErrLinkClosed))
-	require.False(t, shouldRecreateLink(fmt.Errorf("wrapped: %w", amqp.ErrLinkClosed)))
-
-	require.False(t, shouldRecreateLink(amqp.ErrSessionClosed))
-	require.False(t, shouldRecreateLink(fmt.Errorf("wrapped: %w", amqp.ErrSessionClosed)))
+		// should work the same, even if the error is wrapped
+		sbe = ToSBE(context.Background(), fmt.Errorf("this error is wrapped: %w", origErr))
+		require.EqualValues(t, recoveryKindConnection, sbe.RecoveryKind)
+	}
 }
 
-// TODO: while testing it appeared there were some errors that were getting string-ized
-// We want to eliminate these. 'stress.go' reproduces most of these as you disconnect
-// and reconnect.
-func Test_stringErrorsToEliminate(t *testing.T) {
-	require.True(t, shouldRecreateLink(errors.New("detach frame link detached")))
-	require.True(t, isRetryableAMQPError(context.Background(), errors.New("amqp: connection closed")))
-	require.True(t, IsCancelError(errors.New("context canceled")))
+func TestServiceBusError_Fatal(t *testing.T) {
+	fatalErrors := []error{
+		&amqp.Error{Condition: amqp.ErrorUnauthorizedAccess, Description: "description"},
+		&amqp.Error{Condition: amqp.ErrorNotFound, Description: "description"},
+		&amqp.Error{Condition: amqp.ErrorNotAllowed, Description: "description"},
+		&amqp.Error{Condition: "com.microsoft:session-cannot-be-locked", Description: "description"},
+		&amqp.Error{Condition: "com.microsoft:message-lock-lost", Description: "description"},
+	}
+
+	for _, origErr := range fatalErrors {
+		sbe := ToSBE(context.Background(), origErr)
+		require.EqualValues(t, recoveryKindNonRetriable, sbe.RecoveryKind)
+		assertNonRetriable(t, origErr.Error(), sbe.AsError())
+
+		// should work the same, even if the error is wrapped
+		sbe = ToSBE(context.Background(), fmt.Errorf("this error is wrapped: %w", origErr))
+		require.EqualValues(t, recoveryKindNonRetriable, sbe.RecoveryKind)
+		assertNonRetriable(t, "this error is wrapped: "+origErr.Error(), sbe.AsError())
+	}
 }
 
 func Test_IsCancelError(t *testing.T) {
@@ -166,4 +207,10 @@ func Test_IsCancelError(t *testing.T) {
 	require.True(t, IsCancelError(context.DeadlineExceeded))
 	require.True(t, IsCancelError(fmt.Errorf("wrapped: %w", context.Canceled)))
 	require.True(t, IsCancelError(fmt.Errorf("wrapped: %w", context.DeadlineExceeded)))
+}
+
+func Test_IsDetachError(t *testing.T) {
+	require.True(t, isDetachError(&amqp.DetachError{}))
+	require.True(t, isDetachError(amqp.ErrLinkDetached))
+	require.False(t, isDetachError(amqp.ErrConnClosed))
 }

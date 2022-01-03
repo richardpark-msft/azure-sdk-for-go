@@ -43,7 +43,6 @@ const (
 	SpanScheduleMessage        = "sb.mgmt.Schedule"
 	SpanCancelScheduledMessage = "sb.mgmt.CancelScheduled"
 	SpanPeekFromSequenceNumber = "sb.mgmt.PeekSequenceNumber"
-	SpanNameRecover            = "sb.mgmt.Recover"
 	SpanTryRecover             = "sb.mgmt.TryRecover"
 )
 

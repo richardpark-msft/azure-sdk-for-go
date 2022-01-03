@@ -195,10 +195,10 @@ func (sr *SessionReceiver) SetSessionState(ctx context.Context, state []byte) er
 // RenewSessionLock renews this session's lock. The new expiration time is available
 // using `LockedUntil`.
 func (sr *SessionReceiver) RenewSessionLock(ctx context.Context) error {
-	_, _, mgmt, _, err := sr.inner.amqpLinks.Get(ctx)
+	_, _, mgmt, _, sberr := sr.inner.amqpLinks.Get(ctx)
 
-	if err != nil {
-		return err
+	if sberr != nil {
+		return sberr
 	}
 
 	newLockedUntil, err := mgmt.RenewSessionLock(ctx, *sr.sessionID)

@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/internal/errorinfo"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/go-amqp"
 	"github.com/stretchr/testify/require"
 )
@@ -107,8 +107,20 @@ func TestSessionReceiver_acceptSessionButAlreadyLocked(t *testing.T) {
 	// You can address a session by name which makes lock contention possible (unlike
 	// messages where the lock token is not a predefined value)
 	receiver, err = client.AcceptSessionForQueue(ctx, queueName, "session-1", nil)
-	require.True(t, internal.IsSessionLockedError(err))
 	require.Nil(t, receiver)
+
+	// care about two things:
+	// 1. it's marked as non-retriable (this is the simple way customers can check if they should try again)
+	var e errorinfo.NonRetriable
+
+	require.ErrorAs(t, err, &e)
+
+	// 2. and that the internal AMQP error still exists (for advanced customers who want to look at the actual error in a
+	// programatic way)
+	var asAMQPError *amqp.Error
+	require.True(t, errors.As(err, &asAMQPError))
+
+	require.EqualValues(t, "com.microsoft:session-cannot-be-locked", asAMQPError.Condition)
 }
 
 func TestSessionReceiver_acceptNextSession(t *testing.T) {

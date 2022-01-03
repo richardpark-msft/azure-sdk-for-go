@@ -49,7 +49,7 @@ type (
 
 type MgmtClient interface {
 	Close(ctx context.Context) error
-	SendDisposition(ctx context.Context, lockToken *amqp.UUID, state Disposition, propertiesToModify map[string]interface{}) error
+	SendDisposition(ctx context.Context, lockToken *amqp.UUID, state Disposition, propertiesToModify map[string]interface{}) *ServiceBusError
 	ReceiveDeferred(ctx context.Context, mode ReceiveMode, sequenceNumbers []int64) ([]*amqp.Message, error)
 	PeekMessages(ctx context.Context, fromSequenceNumber int64, messageCount int32) ([]*amqp.Message, error)
 
@@ -64,20 +64,20 @@ type MgmtClient interface {
 }
 
 func newMgmtClient(ctx context.Context, links AMQPLinks, ns NamespaceForMgmtClient) (MgmtClient, error) {
-	r := &mgmtClient{
+	mc := &mgmtClient{
 		ns:    ns,
 		links: links,
 	}
 
-	return r, nil
+	return mc, nil
 }
 
 // Recover will attempt to close the current session and link, then rebuild them
-func (mc *mgmtClient) recover(ctx context.Context) error {
+func (mc *mgmtClient) recover(ctx context.Context) *ServiceBusError {
 	mc.clientMu.Lock()
 	defer mc.clientMu.Unlock()
 
-	ctx, span := mc.startSpanFromContext(ctx, string(tracing.SpanNameRecover))
+	ctx, span := mc.startSpanFromContext(ctx, string(tracing.SpanRecover))
 	defer span.End()
 
 	if mc.rpcLink != nil {
@@ -87,24 +87,24 @@ func (mc *mgmtClient) recover(ctx context.Context) error {
 		mc.rpcLink = nil
 	}
 
-	if _, err := mc.getLinkWithoutLock(ctx); err != nil {
-		return err
+	if _, sbe := mc.getLinkWithoutLock(ctx); sbe != nil {
+		return sbe
 	}
 
 	return nil
 }
 
 // getLinkWithoutLock returns the currently cached link (or creates a new one)
-func (mc *mgmtClient) getLinkWithoutLock(ctx context.Context) (RPCLink, error) {
+func (mc *mgmtClient) getLinkWithoutLock(ctx context.Context) (RPCLink, *ServiceBusError) {
 	if mc.rpcLink != nil {
 		return mc.rpcLink, nil
 	}
 
-	var err error
-	mc.rpcLink, err = mc.ns.NewRPCLink(ctx, mc.links.ManagementPath())
+	var sbe *ServiceBusError
+	mc.rpcLink, sbe = mc.ns.NewRPCLink(ctx, mc.links.ManagementPath())
 
-	if err != nil {
-		return nil, err
+	if sbe != nil {
+		return nil, sbe
 	}
 
 	return mc.rpcLink, nil
@@ -125,25 +125,31 @@ func (mc *mgmtClient) Close(ctx context.Context) error {
 }
 
 // creates a new link and sends the RPC request, recovering and retrying on certain AMQP errors
-func (mc *mgmtClient) doRPCWithRetry(ctx context.Context, msg *amqp.Message, times int, delay time.Duration, opts ...rpc.LinkOption) (*rpc.Response, error) {
+func (mc *mgmtClient) doRPCWithRetry(ctx context.Context, msg *amqp.Message, baseRetrier Retrier, opts ...rpc.LinkOption) (*rpc.Response, error) {
 	// track the number of times we attempt to perform the RPC call.
 	// this is to avoid a potential infinite loop if the returned error
 	// is always transient and Recover() doesn't fail.
 	sendCount := 0
 
-	for {
+	retrier := baseRetrier.Copy()
+
+	for retrier.Try(ctx) {
 		mc.clientMu.RLock()
-		rpcLink, err := mc.getLinkWithoutLock(ctx)
+		rpcLink, sbe := mc.getLinkWithoutLock(ctx)
 		mc.clientMu.RUnlock()
 
 		var rsp *rpc.Response
+		var err error
+
+		if sbe != nil {
+			sbe = mc.links.RecoverIfNeeded(ctx, 0, sbe)
+			continue
+		}
+
+		rsp, err = rpcLink.RetryableRPC(ctx, times, delay, msg)
 
 		if err == nil {
-			rsp, err = rpcLink.RetryableRPC(ctx, times, delay, msg)
-
-			if err == nil {
-				return rsp, err
-			}
+			return rsp, nil
 		}
 
 		if sendCount >= amqpRetryDefaultTimes || !isAMQPTransientError(ctx, err) {
@@ -562,14 +568,14 @@ func (mc *mgmtClient) SetSessionState(ctx context.Context, sessionID string, sta
 // SendDisposition allows you settle a message using the management link, rather than via your
 // *amqp.Receiver. Use this if the receiver has been closed/lost or if the message isn't associated
 // with a link (ex: deferred messages).
-func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID, state Disposition, propertiesToModify map[string]interface{}) error {
+func (mc *mgmtClient) SendDisposition(ctx context.Context, lockToken *amqp.UUID, state Disposition, propertiesToModify map[string]interface{}) *ServiceBusError {
 	ctx, span := tracing.StartConsumerSpanFromContext(ctx, tracing.SpanSendDisposition, Version)
 	defer span.End()
 
 	if lockToken == nil {
-		err := errors.New("lock token on the message is not set, thus cannot send disposition")
-		tab.For(ctx).Error(err)
-		return err
+		sbe := sberrNoLock
+		tab.For(ctx).Error(sbe.AsError())
+		return sbe
 	}
 
 	var opts []rpc.LinkOption

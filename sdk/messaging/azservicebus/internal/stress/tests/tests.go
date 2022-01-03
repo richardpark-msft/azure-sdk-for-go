@@ -30,6 +30,7 @@ func Run(remainingArgs []string) {
 		tracing.SpanNegotiateClaim: true,
 		tracing.SpanRecoverClient:  true,
 		tracing.SpanRecoverLink:    true,
+		"sb.sender.SendMessage":    true,
 	}, nil)
 
 	tab.Register(tracer)
@@ -40,6 +41,7 @@ func Run(remainingArgs []string) {
 		"rapidOpenClose":         RapidOpenCloseTest,
 		"longRunningRenewLock":   LongRunningRenewLockTest,
 		"constantDetach":         ConstantDetachment,
+		"throttledSender":        ThrottledSender,
 	}
 
 	if len(remainingArgs) == 0 {

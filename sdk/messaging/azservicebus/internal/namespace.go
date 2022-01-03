@@ -57,16 +57,16 @@ type NamespaceWithNewAMQPLinks interface {
 
 // NamespaceForAMQPLinks is the Namespace surface needed for the internals of AMQPLinks.
 type NamespaceForAMQPLinks interface {
-	NegotiateClaim(ctx context.Context, entityPath string) (func() <-chan struct{}, error)
-	NewAMQPSession(ctx context.Context) (AMQPSessionCloser, uint64, error)
-	NewMgmtClient(ctx context.Context, links AMQPLinks) (MgmtClient, error)
+	NegotiateClaim(ctx context.Context, entityPath string) (func() <-chan struct{}, *ServiceBusError)
+	NewAMQPSession(ctx context.Context) (AMQPSessionCloser, uint64, *ServiceBusError)
+	NewMgmtClient(ctx context.Context, links AMQPLinks) (MgmtClient, *ServiceBusError)
 	GetEntityAudience(entityPath string) string
-	Recover(ctx context.Context, clientRevision uint64) error
+	Recover(ctx context.Context, clientRevision uint64) *ServiceBusError
 }
 
 // NamespaceForAMQPLinks is the Namespace surface needed for the *MgmtClient.
 type NamespaceForMgmtClient interface {
-	NewRPCLink(ctx context.Context, managementPath string) (*rpc.Link, error)
+	NewRPCLink(ctx context.Context, managementPath string) (*rpc.Link, *ServiceBusError)
 }
 
 // NamespaceWithConnectionString configures a namespace with the information provided in a Service Bus connection string
@@ -152,7 +152,7 @@ func NewNamespace(opts ...NamespaceOption) (*Namespace, error) {
 	return ns, nil
 }
 
-func (ns *Namespace) newClient(ctx context.Context) (*amqp.Client, error) {
+func (ns *Namespace) newClient(ctx context.Context) (*amqp.Client, *ServiceBusError) {
 	ctx, span := ns.startSpanFromContext(ctx, "sb.namespace.newClient")
 	defer span.End()
 	defaultConnOptions := []amqp.ConnOption{
@@ -179,47 +179,66 @@ func (ns *Namespace) newClient(ctx context.Context) (*amqp.Client, error) {
 		wssConn, _, err := websocket.Dial(ctx, wssHost, opts)
 
 		if err != nil {
-			return nil, err
+			return nil, ToSBE(ctx, err)
 		}
 		nConn := websocket.NetConn(context.Background(), wssConn, websocket.MessageBinary)
 
-		return amqp.New(nConn, append(defaultConnOptions, amqp.ConnServerHostname(ns.FQDN))...)
+		client, err := amqp.New(nConn, append(defaultConnOptions, amqp.ConnServerHostname(ns.FQDN))...)
+
+		if err != nil {
+			return nil, ToSBE(ctx, err)
+		}
+
+		return client, nil
 	}
 
-	return amqp.Dial(ns.getAMQPHostURI(), defaultConnOptions...)
+	client, err := amqp.Dial(ns.getAMQPHostURI(), defaultConnOptions...)
+
+	if err != nil {
+		return nil, ToSBE(ctx, err)
+	}
+
+	return client, nil
 }
 
 // NewAMQPSession creates a new AMQP session with the internally cached *amqp.Client.
-func (ns *Namespace) NewAMQPSession(ctx context.Context) (AMQPSessionCloser, uint64, error) {
-	client, clientRevision, err := ns.getAMQPClientImpl(ctx)
+func (ns *Namespace) NewAMQPSession(ctx context.Context) (AMQPSessionCloser, uint64, *ServiceBusError) {
+	client, clientRevision, sberr := ns.getAMQPClientImpl(ctx)
 
-	if err != nil {
-		return nil, 0, err
+	if sberr != nil {
+		return nil, 0, sberr
 	}
 
 	session, err := client.NewSession()
 
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, ToSBE(ctx, err)
 	}
 
-	return session, clientRevision, err
+	return session, clientRevision, nil
 }
 
 // NewMgmtClient creates a new management client with the internally cached *amqp.Client.
-func (ns *Namespace) NewMgmtClient(ctx context.Context, l AMQPLinks) (MgmtClient, error) {
-	return newMgmtClient(ctx, l, ns)
+func (ns *Namespace) NewMgmtClient(ctx context.Context, l AMQPLinks) (MgmtClient, *ServiceBusError) {
+	mgmt, err := newMgmtClient(ctx, l, ns)
+	return mgmt, ToSBE(ctx, err)
 }
 
 // NewRPCLink creates a new amqp-common *rpc.Link with the internally cached *amqp.Client.
-func (ns *Namespace) NewRPCLink(ctx context.Context, managementPath string) (*rpc.Link, error) {
-	client, _, err := ns.getAMQPClientImpl(ctx)
+func (ns *Namespace) NewRPCLink(ctx context.Context, managementPath string) (*rpc.Link, *ServiceBusError) {
+	client, _, sbe := ns.getAMQPClientImpl(ctx)
 
-	if err != nil {
-		return nil, err
+	if sbe != nil {
+		return nil, sbe
 	}
 
-	return rpc.NewLink(client, managementPath)
+	link, err := rpc.NewLink(client, managementPath)
+
+	if err != nil {
+		return nil, ToSBE(ctx, err)
+	}
+
+	return link, nil
 }
 
 // NewAMQPLinks creates an AMQPLinks struct, which groups together the commonly needed links for
@@ -285,7 +304,7 @@ func (ns *Namespace) Recover(ctx context.Context, clientRevision uint64) error {
 
 // negotiateClaim performs initial authentication and starts periodic refresh of credentials.
 // the returned func is to cancel() the refresh goroutine.
-func (ns *Namespace) NegotiateClaim(ctx context.Context, entityPath string) (func() <-chan struct{}, error) {
+func (ns *Namespace) NegotiateClaim(ctx context.Context, entityPath string) (func() <-chan struct{}, *ServiceBusError) {
 	return ns.startNegotiateClaimRenewer(ctx,
 		entityPath,
 		cbs.NegotiateClaim,
@@ -297,17 +316,17 @@ func (ns *Namespace) startNegotiateClaimRenewer(ctx context.Context,
 	entityPath string,
 	cbsNegotiateClaim func(ctx context.Context, audience string, conn *amqp.Client, provider auth.TokenProvider) error,
 	nsGetAMQPClientImpl func(ctx context.Context) (*amqp.Client, uint64, error),
-	nextClaimRefreshDurationFn func(expirationTime time.Time, currentTime time.Time) time.Duration) (func() <-chan struct{}, error) {
+	nextClaimRefreshDurationFn func(expirationTime time.Time, currentTime time.Time) time.Duration) (func() <-chan struct{}, *ServiceBusError) {
 	audience := ns.GetEntityAudience(entityPath)
 
-	refreshClaim := func() (time.Time, error) {
+	refreshClaim := func() (time.Time, *ServiceBusError) {
 		retrier := ns.baseRetrier.Copy()
 
-		var lastErr error
+		var lastSBE *ServiceBusError
 		var expiration time.Time
 
 		for retrier.Try(ctx) {
-			expiration, lastErr = func() (time.Time, error) {
+			expiration, lastSBE = func() (time.Time, *ServiceBusError) {
 				ctx, span := ns.startSpanFromContext(ctx, tracing.SpanNegotiateClaim)
 				defer span.End()
 
@@ -315,14 +334,14 @@ func (ns *Namespace) startNegotiateClaimRenewer(ctx context.Context,
 
 				if err != nil {
 					span.Logger().Error(err)
-					return time.Time{}, err
+					return time.Time{}, ToSBE(ctx, err)
 				}
 
 				token, expiration, err := ns.TokenProvider.GetTokenAsTokenProvider(audience)
 
 				if err != nil {
 					span.Logger().Error(err)
-					return time.Time{}, err
+					return time.Time{}, ToSBE(ctx, err)
 				}
 
 				// You're not allowed to have multiple $cbs links open in a single connection.
@@ -333,31 +352,34 @@ func (ns *Namespace) startNegotiateClaimRenewer(ctx context.Context,
 				ns.negotiateClaimMu.Unlock()
 
 				if err != nil {
-					if shouldRecreateConnection(ctx, err) {
+					sbe := ToSBE(ctx, err)
+
+					// claim negotiation creates its own link, so we only need to take care of connection recovery
+					if sbe.RecoveryKind == recoveryKindConnection {
 						if err := ns.Recover(ctx, clientRevision); err != nil {
 							span.Logger().Error(fmt.Errorf("connection recovery failed: %w", err))
 						}
 					}
 
-					span.Logger().Error(err)
-					return time.Time{}, err
+					span.Logger().Error(sbe.AsError())
+					return time.Time{}, sbe
 				}
 
 				return expiration, nil
 			}()
 
-			if lastErr == nil {
+			if lastSBE == nil {
 				break
 			}
 		}
 
-		return expiration, lastErr
+		return expiration, lastSBE
 	}
 
-	expiresOn, err := refreshClaim()
+	expiresOn, sbe := refreshClaim()
 
-	if err != nil {
-		return nil, err
+	if sbe != nil {
+		return nil, sbe
 	}
 
 	// start the periodic refresh of credentials
@@ -386,7 +408,7 @@ func (ns *Namespace) startNegotiateClaimRenewer(ctx context.Context,
 	return cancelRefresh, nil
 }
 
-func (ns *Namespace) getAMQPClientImpl(ctx context.Context) (*amqp.Client, uint64, error) {
+func (ns *Namespace) getAMQPClientImpl(ctx context.Context) (*amqp.Client, uint64, *ServiceBusError) {
 	ns.clientMu.Lock()
 	defer ns.clientMu.Unlock()
 
@@ -394,18 +416,13 @@ func (ns *Namespace) getAMQPClientImpl(ctx context.Context) (*amqp.Client, uint6
 		return ns.client, ns.clientRevision, nil
 	}
 
-	var err error
-	retrier := ns.baseRetrier.Copy()
+	ns.client, err = ns.newClient(ctx)
 
-	for retrier.Try(ctx) {
-		ns.client, err = ns.newClient(ctx)
-
-		if err == nil {
-			break
-		}
+	if err != nil {
+		return nil, 0, ToSBE(ctx, err)
 	}
 
-	return ns.client, ns.clientRevision, err
+	return ns.client, ns.clientRevision, nil
 }
 
 func (ns *Namespace) getWSSHostURI() string {

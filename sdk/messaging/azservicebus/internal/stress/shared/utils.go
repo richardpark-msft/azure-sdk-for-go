@@ -30,7 +30,7 @@ func MustGenerateMessages(sc *StressContext, sender *azservicebus.Sender, messag
 
 	log.Printf("Sending %d messages", messageLimit)
 
-	streamingBatch, err := NewStreamingMessageBatch(ctx, &senderWrapper{inner: sender}, stats)
+	streamingBatch, err := NewStreamingMessageBatch(ctx, sender, stats)
 	sc.PanicOnError("failed to create streaming batch", err)
 
 	extraBytes := make([]byte, numExtraBytes)
@@ -119,6 +119,10 @@ func ConstantlyUpdateQueue(ctx context.Context, adminClient *admin.Client, queue
 // If the env var `ENV_FILE` exists, we assume the value is a path to an .env file
 // Otherwise we fall back to loading from the current directory.
 func LoadEnvironment() error {
+	if os.Getenv("SERVICEBUS_CONNECTION_STRING") != "" {
+		return nil
+	}
+
 	var err error
 	envFilePath := os.Getenv("ENV_FILE")
 

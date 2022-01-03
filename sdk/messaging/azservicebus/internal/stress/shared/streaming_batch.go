@@ -6,7 +6,6 @@ package shared
 import (
 	"context"
 	"log"
-	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 )
@@ -34,7 +33,11 @@ func (sw *senderWrapper) NewMessageBatch(ctx context.Context, options *azservice
 	return sw.inner.NewMessageBatch(ctx, options)
 }
 
-func NewStreamingMessageBatch(ctx context.Context, sender internalBatchSender, stats *Stats) (*StreamingMessageBatch, error) {
+func NewStreamingMessageBatch(ctx context.Context, sender *azservicebus.Sender, stats *Stats) (*StreamingMessageBatch, error) {
+	return newStreamingMessageBatchImpl(ctx, &senderWrapper{inner: sender}, stats)
+}
+
+func newStreamingMessageBatchImpl(ctx context.Context, sender internalBatchSender, stats *Stats) (*StreamingMessageBatch, error) {
 	batch, err := sender.NewMessageBatch(ctx, nil)
 
 	if err != nil {
@@ -74,9 +77,6 @@ func (sb *StreamingMessageBatch) Add(ctx context.Context, msg *azservicebus.Mess
 	}
 
 	sb.stats.AddSent(sb.currentBatch.NumMessages())
-
-	// throttle a teeny bit.
-	time.Sleep(time.Second)
 
 	batch, err := sb.sender.NewMessageBatch(ctx, nil)
 

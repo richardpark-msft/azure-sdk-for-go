@@ -45,7 +45,7 @@ type FakeAMQPLinks struct {
 	Receiver AMQPReceiver
 	Sender   AMQPSender
 	Mgmt     MgmtClient
-	Err      error
+	Err      *ServiceBusError
 
 	permanently bool
 }
@@ -66,7 +66,7 @@ func (r *FakeAMQPReceiver) Close(ctx context.Context) error {
 	return nil
 }
 
-func (l *FakeAMQPLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, error) {
+func (l *FakeAMQPLinks) Get(ctx context.Context) (AMQPSender, AMQPReceiver, MgmtClient, uint64, *ServiceBusError) {
 	return l.Sender, l.Receiver, l.Mgmt, l.Revision, l.Err
 }
 

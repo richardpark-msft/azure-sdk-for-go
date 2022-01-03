@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/internal/rpc"
 	"github.com/Azure/go-amqp"
 	"github.com/devigned/tab"
 )
@@ -172,30 +173,38 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 	return r.receiveMessagesImpl(ctx, maxMessages, options)
 }
 
+func genericRetrier(baseRetrier internal.Retrier, op func(sender internal.AMQPSender, receiver internal.AMQPReceiver, rpcLink *rpc.Link) *internal.ServiceBusError) error {
+	baseRetrier.Copy()
+}
+
 // ReceiveDeferredMessages receives messages that were deferred using `Receiver.DeferMessage`.
 func (r *Receiver) ReceiveDeferredMessages(ctx context.Context, sequenceNumbers []int64) ([]*ReceivedMessage, error) {
-	_, _, mgmt, _, err := r.amqpLinks.Get(ctx)
+	retrier := r.baseRetrier.Copy()
 
-	if err != nil {
-		return nil, err
+	for retrier.Try(ctx) {
+		_, _, mgmt, _, sberr := r.amqpLinks.Get(ctx)
+
+		if sberr != nil {
+			sberr = r.amqpLinks.RecoverIfNeeded(ctx, 0, sberr)
+		}
+
+		amqpMessages, err := mgmt.ReceiveDeferred(ctx, r.receiveMode, sequenceNumbers)
+
+		if err != nil {
+			return nil, err
+		}
+
+		var receivedMessages []*ReceivedMessage
+
+		for _, amqpMsg := range amqpMessages {
+			receivedMsg := newReceivedMessage(ctx, amqpMsg)
+			receivedMsg.deferred = true
+
+			receivedMessages = append(receivedMessages, receivedMsg)
+		}
+
+		return receivedMessages, nil
 	}
-
-	amqpMessages, err := mgmt.ReceiveDeferred(ctx, r.receiveMode, sequenceNumbers)
-
-	if err != nil {
-		return nil, err
-	}
-
-	var receivedMessages []*ReceivedMessage
-
-	for _, amqpMsg := range amqpMessages {
-		receivedMsg := newReceivedMessage(ctx, amqpMsg)
-		receivedMsg.deferred = true
-
-		receivedMessages = append(receivedMessages, receivedMsg)
-	}
-
-	return receivedMessages, nil
 }
 
 // PeekMessagesOptions contains options for the `Receiver.PeekMessages`
@@ -210,10 +219,10 @@ type PeekMessagesOptions struct {
 // like CompleteMessage, AbandonMessage, DeferMessage or DeadLetterMessage
 // will not work with them.
 func (r *Receiver) PeekMessages(ctx context.Context, maxMessageCount int, options *PeekMessagesOptions) ([]*ReceivedMessage, error) {
-	_, _, mgmt, _, err := r.amqpLinks.Get(ctx)
+	_, _, mgmt, _, sberr := r.amqpLinks.Get(ctx)
 
-	if err != nil {
-		return nil, err
+	if sberr != nil {
+		return nil, sberr
 	}
 
 	var sequenceNumber = r.lastPeekedSequenceNumber + 1
@@ -246,10 +255,10 @@ func (r *Receiver) PeekMessages(ctx context.Context, maxMessageCount int, option
 
 // RenewLock renews the lock on a message, updating the `LockedUntil` field on `msg`.
 func (r *Receiver) RenewMessageLock(ctx context.Context, msg *ReceivedMessage) error {
-	_, _, mgmt, _, err := r.amqpLinks.Get(ctx)
+	_, _, mgmt, _, sberr := r.amqpLinks.Get(ctx)
 
-	if err != nil {
-		return err
+	if sberr != nil {
+		return sberr
 	}
 
 	newExpirationTime, err := mgmt.RenewLocks(ctx, msg.rawAMQPMessage.LinkName(), []amqp.UUID{
@@ -333,14 +342,14 @@ func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, opt
 	//    user isn't actually waiting for anymore. So we make sure that #3 runs if the
 	//    link is still valid.
 	// Phase 3. <drain the link and leave it in a good state>
-	_, receiver, _, linksRevision, err := r.amqpLinks.Get(ctx)
+	_, receiver, _, linksRevision, sberr := r.amqpLinks.Get(ctx)
 
-	if err != nil {
-		if err := r.amqpLinks.RecoverIfNeeded(ctx, linksRevision, err); err != nil {
+	if sberr != nil {
+		if err := r.amqpLinks.RecoverIfNeeded(ctx, linksRevision, sberr); err != nil {
 			return nil, err
 		}
 
-		return nil, err
+		return nil, sberr
 	}
 
 	if err := receiver.IssueCredit(uint32(maxMessages)); err != nil {
