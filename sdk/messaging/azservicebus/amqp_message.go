@@ -3,6 +3,7 @@ package azservicebus
 import (
 	"time"
 
+	"github.com/Azure/go-amqp"
 	goamqp "github.com/Azure/go-amqp"
 )
 
@@ -95,6 +96,10 @@ type AMQPMessage struct {
 	// constructed or seen (for example message hashes, HMACs, signatures and
 	// encryption details).
 	Footer AMQPAnnotations
+
+	// m is the original amqp.Message, as given to us by go-amqp. This is only needed
+	// when we're passing the message, opaquely, between our API and go-amqp.
+	m *amqp.Message
 }
 
 type AMQPAnnotations map[interface{}]interface{}
@@ -217,6 +222,7 @@ func newAMQPMessage(m *goamqp.Message) *AMQPMessage {
 		Data:                  m.Data,
 		Value:                 m.Value,
 		Footer:                AMQPAnnotations(m.Footer),
+		m:                     m,
 	}
 }
 

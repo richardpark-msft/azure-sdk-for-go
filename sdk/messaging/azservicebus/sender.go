@@ -76,7 +76,7 @@ func (s *Sender) SendAMQPMessage(ctx context.Context, message *AMQPMessage) erro
 		defer span.End()
 
 		return lwid.Sender.Send(ctx, message.toGoAMQPMessage())
-	}, nil, s.retryOptions)
+	}, s.retryOptions)
 }
 
 // SendMessageBatch sends a MessageBatch to a queue or topic.

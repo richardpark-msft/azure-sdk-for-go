@@ -49,7 +49,7 @@ type ReceivedMessage struct {
 	// available in the raw AMQP message, but not exported by default
 	// GroupSequence  *uint32
 
-	rawAMQPMessage *amqp.Message
+	RawAMQPMessage *AMQPMessage
 
 	// deferred indicates we received it using ReceiveDeferredMessages. These messages
 	// will still go through the normal Receiver.Settle functions but internally will
@@ -61,11 +61,11 @@ type ReceivedMessage struct {
 // If the body not compatible with ReceivedMessage this function will return an error.
 func (rm *ReceivedMessage) Body() ([]byte, error) {
 	// TODO: does this come back as a zero length array if the body is empty (which is allowed)
-	if rm.rawAMQPMessage.Data == nil || len(rm.rawAMQPMessage.Data) != 1 {
+	if rm.RawAMQPMessage.Data == nil || len(rm.RawAMQPMessage.Data) != 1 {
 		return nil, errors.New("AMQP message Data section is improperly encoded for ReceivedMessage")
 	}
 
-	return rm.rawAMQPMessage.Data[0], nil
+	return rm.RawAMQPMessage.Data[0], nil
 }
 
 // Message is a message with a body and commonly used properties.
@@ -201,7 +201,7 @@ func (m *Message) toAMQPMessage() *AMQPMessage {
 // serialized byte array in the Data section of the messsage.
 func newReceivedMessage(amqpMsg *amqp.Message) *ReceivedMessage {
 	msg := &ReceivedMessage{
-		rawAMQPMessage: amqpMsg,
+		RawAMQPMessage: newAMQPMessage(amqpMsg),
 	}
 
 	if amqpMsg.Properties != nil {
