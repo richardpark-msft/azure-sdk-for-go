@@ -96,6 +96,10 @@ func (mb *MessageBatch) toAMQPMessage() *amqp.Message {
 }
 
 func (mb *MessageBatch) addAMQPMessage(amqpMessage *AMQPMessage) error {
+	if amqpMessage.Properties == nil {
+		amqpMessage.Properties = &AMQPMessageProperties{}
+	}
+
 	if amqpMessage.Properties.MessageID == nil || amqpMessage.Properties.MessageID == "" {
 		uid, err := uuid.New()
 		if err != nil {

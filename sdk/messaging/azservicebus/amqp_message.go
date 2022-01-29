@@ -197,13 +197,10 @@ type AMQPMessageHeader struct {
 }
 
 func newAMQPMessage(m *goamqp.Message) *AMQPMessage {
-	return &AMQPMessage{
-		Format:              m.Format,
-		DeliveryTag:         m.DeliveryTag,
-		Header:              (*AMQPMessageHeader)(m.Header),
-		DeliveryAnnotations: AMQPAnnotations(m.DeliveryAnnotations),
-		Annotations:         AMQPAnnotations(m.Annotations),
-		Properties: &AMQPMessageProperties{
+	var properties *AMQPMessageProperties
+
+	if m.Properties != nil {
+		properties = &AMQPMessageProperties{
 			MessageID:          m.Properties.MessageID,
 			UserID:             m.Properties.UserID,
 			To:                 m.Properties.To,
@@ -217,7 +214,16 @@ func newAMQPMessage(m *goamqp.Message) *AMQPMessage {
 			GroupID:            m.Properties.GroupID,
 			GroupSequence:      m.Properties.GroupSequence,
 			ReplyToGroupID:     m.Properties.ReplyToGroupID,
-		},
+		}
+	}
+
+	return &AMQPMessage{
+		Format:                m.Format,
+		DeliveryTag:           m.DeliveryTag,
+		Header:                (*AMQPMessageHeader)(m.Header),
+		DeliveryAnnotations:   AMQPAnnotations(m.DeliveryAnnotations),
+		Annotations:           AMQPAnnotations(m.Annotations),
+		Properties:            properties,
 		ApplicationProperties: m.ApplicationProperties,
 		Data:                  m.Data,
 		Value:                 m.Value,
@@ -227,13 +233,10 @@ func newAMQPMessage(m *goamqp.Message) *AMQPMessage {
 }
 
 func (m *AMQPMessage) toGoAMQPMessage() *goamqp.Message {
-	return &goamqp.Message{
-		Format:              m.Format,
-		DeliveryTag:         m.DeliveryTag,
-		Header:              (*goamqp.MessageHeader)(m.Header),
-		DeliveryAnnotations: goamqp.Annotations(m.DeliveryAnnotations),
-		Annotations:         goamqp.Annotations(m.Annotations),
-		Properties: &goamqp.MessageProperties{
+	var properties *goamqp.MessageProperties
+
+	if m.Properties != nil {
+		properties = &goamqp.MessageProperties{
 			MessageID:          m.Properties.MessageID,
 			UserID:             m.Properties.UserID,
 			To:                 m.Properties.To,
@@ -247,7 +250,16 @@ func (m *AMQPMessage) toGoAMQPMessage() *goamqp.Message {
 			GroupID:            m.Properties.GroupID,
 			GroupSequence:      m.Properties.GroupSequence,
 			ReplyToGroupID:     m.Properties.ReplyToGroupID,
-		},
+		}
+	}
+
+	return &goamqp.Message{
+		Format:                m.Format,
+		DeliveryTag:           m.DeliveryTag,
+		Header:                (*goamqp.MessageHeader)(m.Header),
+		DeliveryAnnotations:   goamqp.Annotations(m.DeliveryAnnotations),
+		Annotations:           goamqp.Annotations(m.Annotations),
+		Properties:            properties,
 		ApplicationProperties: m.ApplicationProperties,
 		Data:                  m.Data,
 		Value:                 m.Value,

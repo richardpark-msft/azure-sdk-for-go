@@ -390,6 +390,99 @@ func TestSender_SendMessageBatchDetach(t *testing.T) {
 	require.EqualValues(t, []string{"0", "1", "2", "3", "4"}, getSortedBodies(all))
 }
 
+func TestSender_AMQPMessage(t *testing.T) {
+	sbc, cleanup, queueName := setupLiveTest(t, nil)
+	defer cleanup()
+
+	sender, err := sbc.NewSender(queueName, nil)
+	require.NoError(t, err)
+
+	receiver, err := sbc.NewReceiverForQueue(queueName, nil)
+	require.NoError(t, err)
+
+	// send a single message
+
+	require.NoError(t, sender.SendAMQPMessage(context.Background(), &AMQPMessage{
+		Header: &AMQPMessageHeader{
+			Priority: 1,
+		},
+		ApplicationProperties: map[string]interface{}{
+			"ApplicationProperty1": "SingleMessage",
+		},
+		Value: "hello",
+	}))
+
+	messages, err := receiver.ReceiveMessages(context.Background(), 1, nil)
+	require.NoError(t, err)
+	require.NotNil(t, messages[0].RawAMQPMessage)
+
+	require.EqualValues(t, "hello", messages[0].RawAMQPMessage.Value)
+	require.EqualValues(t, "SingleMessage", messages[0].RawAMQPMessage.ApplicationProperties["ApplicationProperty1"])
+
+	body, err := messages[0].Body()
+	// (we encoded the payload into the Value section)
+	require.EqualError(t, err, "AMQP message Data section is improperly encoded for ReceivedMessage")
+	require.Nil(t, body)
+
+	require.NoError(t, receiver.CompleteMessage(context.Background(), messages[0]))
+
+	// send a message batch
+
+	batch, err := sender.NewMessageBatch(context.Background(), nil)
+	require.NoError(t, err)
+
+	err = batch.AddAMQPMessage(&AMQPMessage{
+		ApplicationProperties: map[string]interface{}{
+			"ApplicationProperty1": "BatchMessage",
+		},
+		Data: [][]byte{[]byte("batchMessage")},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, sender.SendMessageBatch(context.Background(), batch))
+
+	messages, err = receiver.ReceiveMessages(context.Background(), 1, nil)
+	require.NoError(t, err)
+	require.NotNil(t, messages[0].RawAMQPMessage)
+
+	// AMQP data bodies are arrays of byte arrays.
+	require.EqualValues(t, [][]byte{[]byte("batchMessage")}, messages[0].RawAMQPMessage.Data)
+	require.EqualValues(t, "BatchMessage", messages[0].RawAMQPMessage.ApplicationProperties["ApplicationProperty1"])
+
+	body, err = messages[0].Body()
+	require.NoError(t, err)
+	require.EqualValues(t, "batchMessage", string(body))
+
+	require.NoError(t, receiver.DeadLetterMessage(context.Background(), messages[0], nil))
+
+	// scheduling a message
+
+	sequenceNumbers, err := sender.ScheduleAMQPMessages(context.Background(), []*AMQPMessage{
+		{
+			Data: [][]byte{[]byte("scheduled message")},
+			ApplicationProperties: map[string]interface{}{
+				"ApplicationProperty1": "ScheduledMessage",
+			},
+		},
+	}, time.Now().Add(-24*time.Hour)) // schedule it in the past so it gets delivered _now_
+	require.NoError(t, err)
+	require.NotEmpty(t, sequenceNumbers)
+
+	messages, err = receiver.ReceiveMessages(context.Background(), 1, nil)
+	require.NoError(t, err)
+	require.NotNil(t, messages[0].RawAMQPMessage)
+
+	require.NotNil(t, messages[0].RawAMQPMessage)
+	require.EqualValues(t, [][]byte{[]byte("scheduled message")}, messages[0].RawAMQPMessage.Data)
+	require.EqualValues(t, "ScheduledMessage", messages[0].RawAMQPMessage.ApplicationProperties["ApplicationProperty1"])
+
+	body, err = messages[0].Body()
+	require.NoError(t, err)
+	require.EqualValues(t, "scheduled message", string(body))
+
+	require.NoError(t, receiver.CompleteMessage(context.Background(), messages[0]))
+}
+
 func getSortedBodies(messages []*ReceivedMessage) []string {
 	sort.Sort(receivedMessages(messages))
 

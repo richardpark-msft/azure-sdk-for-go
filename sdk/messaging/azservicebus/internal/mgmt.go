@@ -478,6 +478,10 @@ func ScheduleMessages(ctx context.Context, rpcLink RPCLink, enqueueTime time.Tim
 	enqueueTimeAsUTC := enqueueTime.UTC()
 
 	for i := range messages {
+		if messages[i].Annotations == nil {
+			messages[i].Annotations = amqp.Annotations{}
+		}
+
 		// TODO: don't like that we're modifying the underlying message here
 		messages[i].Annotations["x-opt-scheduled-enqueue-time"] = &enqueueTimeAsUTC
 
