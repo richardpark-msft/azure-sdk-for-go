@@ -63,12 +63,20 @@ func (s *Sender) NewMessageBatch(ctx context.Context, options *MessageBatchOptio
 
 // SendMessage sends a Message to a queue or topic.
 func (s *Sender) SendMessage(ctx context.Context, message *Message) error {
+	return s.SendAMQPMessage(ctx, message.toAMQPMessage())
+}
+
+// SendAMQPMessage sends an AMQPMessage to a queue or topic.
+func (s *Sender) SendAMQPMessage(ctx context.Context, message *AMQPMessage) error {
+	ctx, span := s.startProducerSpanFromContext(ctx, spanNameSendMessage)
+	defer span.End()
+
 	return s.links.Retry(ctx, "SendMessage", func(ctx context.Context, lwid *internal.LinksWithID, args *utils.RetryFnArgs) error {
 		ctx, span := s.startProducerSpanFromContext(ctx, spanNameSendMessage)
 		defer span.End()
 
-		return lwid.Sender.Send(ctx, message.toAMQPMessage())
-	}, utils.RetryOptions(s.retryOptions))
+		return lwid.Sender.Send(ctx, message.toGoAMQPMessage())
+	}, nil, s.retryOptions)
 }
 
 // SendMessageBatch sends a MessageBatch to a queue or topic.
@@ -82,17 +90,42 @@ func (s *Sender) SendMessageBatch(ctx context.Context, batch *MessageBatch) erro
 	}, utils.RetryOptions(s.retryOptions))
 }
 
-// ScheduleMessages schedules a slice of Messages to appear on Service Bus Queue/Subscription at a later time.
+// ScheduleMessages schedules a slice of Message to appear on Service Bus Queue/Subscription at a later time.
 // Returns the sequence numbers of the messages that were scheduled.  Messages that haven't been
 // delivered can be cancelled using `Receiver.CancelScheduleMessage(s)`
 func (s *Sender) ScheduleMessages(ctx context.Context, messages []*Message, scheduledEnqueueTime time.Time) ([]int64, error) {
-	var amqpMessages []*amqp.Message
+	var amqpMessages []*AMQPMessage
 
 	for _, m := range messages {
 		amqpMessages = append(amqpMessages, m.toAMQPMessage())
 	}
 
-	return s.scheduleAMQPMessages(ctx, amqpMessages, scheduledEnqueueTime)
+	return s.ScheduleAMQPMessages(ctx, amqpMessages, scheduledEnqueueTime)
+}
+
+// ScheduleAMQPMessages schedules a slice of amqp.Message to appear on Service Bus Queue/Subscription at a later time.
+// Returns the sequence numbers of the messages that were scheduled.  Messages that haven't been
+// delivered can be cancelled using `Receiver.CancelScheduleMessage(s)`
+func (s *Sender) ScheduleAMQPMessages(ctx context.Context, messages []*AMQPMessage, scheduledEnqueueTime time.Time) ([]int64, error) {
+	var sequenceNumbers []int64
+
+	err := s.links.Retry(ctx, "scheduleMessages", func(ctx context.Context, lwv *internal.LinksWithID, args *utils.RetryFnArgs) error {
+		goAMQPMessages := make([]*amqp.Message, len(messages))
+
+		for i, m := range messages {
+			goAMQPMessages[i] = m.toGoAMQPMessage()
+		}
+
+		sn, err := internal.ScheduleMessages(ctx, lwv.RPC, scheduledEnqueueTime, goAMQPMessages)
+
+		if err != nil {
+			return err
+		}
+		sequenceNumbers = sn
+		return nil
+	}, s.retryOptions)
+
+	return sequenceNumbers, err
 }
 
 // MessageBatch changes
@@ -108,22 +141,6 @@ func (s *Sender) CancelScheduledMessages(ctx context.Context, sequenceNumbers []
 func (s *Sender) Close(ctx context.Context) error {
 	s.cleanupOnClose()
 	return s.links.Close(ctx, true)
-}
-
-func (s *Sender) scheduleAMQPMessages(ctx context.Context, messages []*amqp.Message, scheduledEnqueueTime time.Time) ([]int64, error) {
-	var sequenceNumbers []int64
-
-	err := s.links.Retry(ctx, "scheduleMessages", func(ctx context.Context, lwv *internal.LinksWithID, args *utils.RetryFnArgs) error {
-		sn, err := internal.ScheduleMessages(ctx, lwv.RPC, scheduledEnqueueTime, messages)
-
-		if err != nil {
-			return err
-		}
-		sequenceNumbers = sn
-		return nil
-	}, s.retryOptions)
-
-	return sequenceNumbers, err
 }
 
 func (sender *Sender) createSenderLink(ctx context.Context, session internal.AMQPSession) (internal.AMQPSenderCloser, internal.AMQPReceiverCloser, error) {

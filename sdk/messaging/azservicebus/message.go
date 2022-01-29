@@ -106,12 +106,18 @@ const (
 	enqueuedSequenceNumberAnnotation = "x-opt-enqueue-sequence-number"
 )
 
-func (m *Message) toAMQPMessage() *amqp.Message {
-	amqpMsg := amqp.NewMessage(m.Body)
+func (m *Message) toAMQPMessage() *AMQPMessage {
+	amqpMsg := &AMQPMessage{
+		Data: [][]byte{
+			m.Body,
+		},
+	}
+
+	// amqpMsg := amqp.NewMessage(m.Body)
 
 	if m.TimeToLive != nil {
 		if amqpMsg.Header == nil {
-			amqpMsg.Header = new(amqp.MessageHeader)
+			amqpMsg.Header = new(AMQPMessageHeader)
 		}
 		amqpMsg.Header.TTL = *m.TimeToLive
 	}
@@ -122,7 +128,7 @@ func (m *Message) toAMQPMessage() *amqp.Message {
 		messageID = *m.MessageID
 	}
 
-	amqpMsg.Properties = &amqp.MessageProperties{
+	amqpMsg.Properties = &AMQPMessageProperties{
 		MessageID: messageID,
 	}
 

@@ -51,6 +51,15 @@ func (mb *MessageBatch) AddMessage(m *Message) error {
 	return mb.addAMQPMessage(m.toAMQPMessage())
 }
 
+// AddAMQPMessage adds a message to the batch if the message will not exceed the max size of the batch
+// Returns:
+// - ErrMessageTooLarge if the message cannot fit
+// - a non-nil error for other failures
+// - nil, otherwise
+func (mb *MessageBatch) AddAMQPMessage(m *AMQPMessage) error {
+	return mb.addAMQPMessage(m)
+}
+
 // NumBytes is the number of bytes in the message batch
 func (mb *MessageBatch) NumBytes() uint64 {
 	mb.mu.RLock()
@@ -86,14 +95,16 @@ func (mb *MessageBatch) toAMQPMessage() *amqp.Message {
 	return mb.batchEnvelope
 }
 
-func (mb *MessageBatch) addAMQPMessage(msg *amqp.Message) error {
-	if msg.Properties.MessageID == nil || msg.Properties.MessageID == "" {
+func (mb *MessageBatch) addAMQPMessage(amqpMessage *AMQPMessage) error {
+	if amqpMessage.Properties.MessageID == nil || amqpMessage.Properties.MessageID == "" {
 		uid, err := uuid.New()
 		if err != nil {
 			return err
 		}
-		msg.Properties.MessageID = uid.String()
+		amqpMessage.Properties.MessageID = uid.String()
 	}
+
+	msg := amqpMessage.toGoAMQPMessage()
 
 	bin, err := msg.MarshalBinary()
 	if err != nil {

@@ -1,6 +1,16 @@
-package amqp
+package azservicebus
 
-type Message struct {
+import (
+	"time"
+
+	goamqp "github.com/Azure/go-amqp"
+)
+
+// AMQPMessage is the "raw" AMQP message which gives full control and access to
+// all parts of an AMQP message.
+// An AMQPMessage will be included in the ReceivedMessage which is retrieved
+// from
+type AMQPMessage struct {
 	// Message format code.
 	//
 	// The upper three octets of a message format code identify a particular message
@@ -14,7 +24,7 @@ type Message struct {
 
 	// The header section carries standard delivery details about the transfer
 	// of a message through the AMQP network.
-	Header *MessageHeader
+	Header *AMQPMessageHeader
 	// If the header section is omitted the receiver MUST assume the appropriate
 	// default values (or the meaning implied by no value being set) for the
 	// fields within the header unless other target or node specific defaults
@@ -23,7 +33,7 @@ type Message struct {
 	// The delivery-annotations section is used for delivery-specific non-standard
 	// properties at the head of the message. Delivery annotations convey information
 	// from the sending peer to the receiving peer.
-	DeliveryAnnotations Annotations
+	DeliveryAnnotations AMQPAnnotations
 	// If the recipient does not understand the annotation it cannot be acted upon
 	// and its effects (such as any implied propagation) cannot be acted upon.
 	// Annotations might be specific to one implementation, or common to multiple
@@ -39,7 +49,7 @@ type Message struct {
 
 	// The message-annotations section is used for properties of the message which
 	// are aimed at the infrastructure.
-	Annotations Annotations
+	Annotations AMQPAnnotations
 	// The message-annotations section is used for properties of the message which
 	// are aimed at the infrastructure and SHOULD be propagated across every
 	// delivery step. Message annotations convey information about the message.
@@ -60,7 +70,7 @@ type Message struct {
 
 	// The properties section is used for a defined set of standard properties of
 	// the message.
-	Properties *MessageProperties
+	Properties *AMQPMessageProperties
 	// The properties section is part of the bare message; therefore,
 	// if retransmitted by an intermediary, it MUST remain unaltered.
 
@@ -78,19 +88,19 @@ type Message struct {
 
 	// Value is the payload of the value-section for an AMQP message.
 	// An amqp-value section contains a single AMQP value.
-	Value interface{}	
+	Value interface{}
 
 	// The footer section is used for details about the message or delivery which
 	// can only be calculated or evaluated once the whole bare message has been
 	// constructed or seen (for example message hashes, HMACs, signatures and
 	// encryption details).
-	Footer Annotations
+	Footer AMQPAnnotations
 }
 
-type Annotations map[interface{}]interface{}
+type AMQPAnnotations map[interface{}]interface{}
 
 // MessageProperties is the defined set of properties for AMQP messages.
-type MessageProperties struct {
+type AMQPMessageProperties struct {
 	// Message-id, if set, uniquely identifies a message within the message system.
 	// The message producer is usually responsible for setting the message-id in
 	// such a way that it is assured to be globally unique. A broker MAY discard a
@@ -104,13 +114,13 @@ type MessageProperties struct {
 
 	// The to field identifies the node that is the intended destination of the message.
 	// On any given transfer this might not be the node at the receiving end of the link.
-	To string
+	To *string
 
 	// A common field for summary information about the message content and purpose.
-	Subject string
+	Subject *string
 
 	// The address of the node to send replies to.
-	ReplyTo string
+	ReplyTo *string
 
 	// This is a client-specific id that can be used to mark or identify messages
 	// between clients.
@@ -127,7 +137,7 @@ type MessageProperties struct {
 	//
 	// When using an application-data section with a section code other than data,
 	// content-type SHOULD NOT be set.
-	ContentType string
+	ContentType *string
 
 	// The content-encoding property is used as a modifier to the content-type.
 	// When present, its value indicates what additional content encodings have been
@@ -152,31 +162,89 @@ type MessageProperties struct {
 	//
 	// Implementations SHOULD NOT specify multiple content-encoding values except as to
 	// be compatible with messages originally sent with other protocols, e.g. HTTP or SMTP.
-	ContentEncoding string
+	ContentEncoding *string
 
 	// An absolute time when this message is considered to be expired.
-	AbsoluteExpiryTime time.Time
+	AbsoluteExpiryTime *time.Time
 
 	// An absolute time when this message was created.
-	CreationTime time.Time
+	CreationTime *time.Time
 
 	// Identifies the group the message belongs to.
-	GroupID string
+	GroupID *string
 
 	// The relative position of this message within its group.
-	GroupSequence uint32 // RFC-1982 sequence number
+	GroupSequence *uint32 // RFC-1982 sequence number
 
 	// This is a client-specific id that is used so that client can send replies to this
 	// message to a specific group.
-	ReplyToGroupID string
+	ReplyToGroupID *string
 }
 
-// MessageHeader carries standard delivery details about the transfer
+// AMQPMessageHeader carries standard delivery details about the transfer
 // of a message.
-type MessageHeader struct {
+type AMQPMessageHeader struct {
 	Durable       bool
 	Priority      uint8
 	TTL           time.Duration // from milliseconds
 	FirstAcquirer bool
 	DeliveryCount uint32
+}
+
+func newAMQPMessage(m *goamqp.Message) *AMQPMessage {
+	return &AMQPMessage{
+		Format:              m.Format,
+		DeliveryTag:         m.DeliveryTag,
+		Header:              (*AMQPMessageHeader)(m.Header),
+		DeliveryAnnotations: AMQPAnnotations(m.DeliveryAnnotations),
+		Annotations:         AMQPAnnotations(m.Annotations),
+		Properties: &AMQPMessageProperties{
+			MessageID:          m.Properties.MessageID,
+			UserID:             m.Properties.UserID,
+			To:                 m.Properties.To,
+			Subject:            m.Properties.Subject,
+			ReplyTo:            m.Properties.ReplyTo,
+			CorrelationID:      m.Properties.CorrelationID,
+			ContentType:        m.Properties.ContentType,
+			ContentEncoding:    m.Properties.ContentEncoding,
+			AbsoluteExpiryTime: m.Properties.AbsoluteExpiryTime,
+			CreationTime:       m.Properties.CreationTime,
+			GroupID:            m.Properties.GroupID,
+			GroupSequence:      m.Properties.GroupSequence,
+			ReplyToGroupID:     m.Properties.ReplyToGroupID,
+		},
+		ApplicationProperties: m.ApplicationProperties,
+		Data:                  m.Data,
+		Value:                 m.Value,
+		Footer:                AMQPAnnotations(m.Footer),
+	}
+}
+
+func (m *AMQPMessage) toGoAMQPMessage() *goamqp.Message {
+	return &goamqp.Message{
+		Format:              m.Format,
+		DeliveryTag:         m.DeliveryTag,
+		Header:              (*goamqp.MessageHeader)(m.Header),
+		DeliveryAnnotations: goamqp.Annotations(m.DeliveryAnnotations),
+		Annotations:         goamqp.Annotations(m.Annotations),
+		Properties: &goamqp.MessageProperties{
+			MessageID:          m.Properties.MessageID,
+			UserID:             m.Properties.UserID,
+			To:                 m.Properties.To,
+			Subject:            m.Properties.Subject,
+			ReplyTo:            m.Properties.ReplyTo,
+			CorrelationID:      m.Properties.CorrelationID,
+			ContentType:        m.Properties.ContentType,
+			ContentEncoding:    m.Properties.ContentEncoding,
+			AbsoluteExpiryTime: m.Properties.AbsoluteExpiryTime,
+			CreationTime:       m.Properties.CreationTime,
+			GroupID:            m.Properties.GroupID,
+			GroupSequence:      m.Properties.GroupSequence,
+			ReplyToGroupID:     m.Properties.ReplyToGroupID,
+		},
+		ApplicationProperties: m.ApplicationProperties,
+		Data:                  m.Data,
+		Value:                 m.Value,
+		Footer:                goamqp.Annotations(m.Footer),
+	}
 }
