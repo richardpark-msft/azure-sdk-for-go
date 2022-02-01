@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
-	"github.com/Azure/go-amqp"
+	goamqp "github.com/Azure/go-amqp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,7 +51,7 @@ func TestMessageUnitTest(t *testing.T) {
 func TestAMQPMessageToReceivedMessage(t *testing.T) {
 	t.Run("empty_message", func(t *testing.T) {
 		// nothing should blow up.
-		rm := newReceivedMessage(&amqp.Message{})
+		rm := newReceivedMessage(&goamqp.Message{})
 		require.NotNil(t, rm)
 	})
 
@@ -60,7 +60,7 @@ func TestAMQPMessageToReceivedMessage(t *testing.T) {
 		enqueuedTime := time.Now().Add(2 * time.Hour)
 		scheduledEnqueueTime := time.Now().Add(3 * time.Hour)
 
-		amqpMessage := &amqp.Message{
+		amqpMessage := &goamqp.Message{
 			Annotations: map[interface{}]interface{}{
 				"x-opt-locked-until":            lockedUntil,
 				"x-opt-sequence-number":         int64(101),
@@ -94,9 +94,9 @@ func TestAMQPMessageToMessage(t *testing.T) {
 
 	groupSequence := uint32(1)
 
-	amqpMsg := &amqp.Message{
+	amqpMsg := &goamqp.Message{
 		DeliveryTag: dotNetEncodedLockTokenGUID,
-		Properties: &amqp.MessageProperties{
+		Properties: &goamqp.MessageProperties{
 			MessageID:          "messageID",
 			To:                 to.StringPtr("to"),
 			Subject:            to.StringPtr("subject"),
@@ -110,7 +110,7 @@ func TestAMQPMessageToMessage(t *testing.T) {
 			GroupID:            to.StringPtr("groupID"),
 			GroupSequence:      &groupSequence,
 		},
-		Annotations: amqp.Annotations{
+		Annotations: goamqp.Annotations{
 			"x-opt-locked-until":            until,
 			"x-opt-sequence-number":         int64(1),
 			"x-opt-partition-id":            pID,
@@ -125,7 +125,7 @@ func TestAMQPMessageToMessage(t *testing.T) {
 		ApplicationProperties: map[string]interface{}{
 			"test": "foo",
 		},
-		Header: &amqp.MessageHeader{
+		Header: &goamqp.MessageHeader{
 			TTL: d,
 		},
 		Data: [][]byte{[]byte("foo")},
