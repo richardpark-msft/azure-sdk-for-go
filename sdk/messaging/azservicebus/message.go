@@ -157,18 +157,18 @@ func (m *Message) toAMQPMessage() *AMQPMessage {
 		}
 	}
 
-	amqpMsg.Annotations = map[interface{}]interface{}{}
+	amqpMsg.MessageAnnotations = map[interface{}]interface{}{}
 
 	if m.PartitionKey != nil {
-		amqpMsg.Annotations[partitionKeyAnnotation] = *m.PartitionKey
+		amqpMsg.MessageAnnotations[partitionKeyAnnotation] = *m.PartitionKey
 	}
 
 	if m.TransactionPartitionKey != nil {
-		amqpMsg.Annotations[viaPartitionKeyAnnotation] = *m.TransactionPartitionKey
+		amqpMsg.MessageAnnotations[viaPartitionKeyAnnotation] = *m.TransactionPartitionKey
 	}
 
 	if m.ScheduledEnqueueTime != nil {
-		amqpMsg.Annotations[scheduledEnqueuedTimeAnnotation] = *m.ScheduledEnqueueTime
+		amqpMsg.MessageAnnotations[scheduledEnqueuedTimeAnnotation] = *m.ScheduledEnqueueTime
 	}
 
 	// TODO: These are 'received' message properties so I believe their inclusion here was just an artifact of only

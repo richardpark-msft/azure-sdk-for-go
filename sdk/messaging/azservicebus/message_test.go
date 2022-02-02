@@ -19,7 +19,7 @@ func TestMessageUnitTest(t *testing.T) {
 
 		// basic thing - it's totally fine to send a message nothing in it.
 		amqpMessage := message.toAMQPMessage()
-		require.Empty(t, amqpMessage.Annotations)
+		require.Empty(t, amqpMessage.MessageAnnotations)
 		require.Nil(t, amqpMessage.Properties.MessageID)
 
 		scheduledEnqueuedTime := time.Now()
@@ -45,7 +45,7 @@ func TestMessageUnitTest(t *testing.T) {
 			partitionKeyAnnotation:          "partition key",
 			viaPartitionKeyAnnotation:       "via partition key",
 			scheduledEnqueuedTimeAnnotation: scheduledEnqueuedTime,
-		}, amqpMessage.Annotations)
+		}, amqpMessage.MessageAnnotations)
 	})
 }
 
@@ -167,15 +167,28 @@ func TestAMQPMessageToGoAMQPMessage(t *testing.T) {
 
 	// azservicebus -> goAMQP
 	ourAMQPMessage := &AMQPMessage{
-		Format: 1,
-		Data:   [][]byte{[]byte("data1"), []byte("data2")},
-		Value:  "thevalue",
 		ApplicationProperties: map[string]interface{}{
 			"AppProperty1": "AppPropertyValue1",
 		},
+		Data: [][]byte{[]byte("data1"), []byte("data2")},
+		DeliveryAnnotations: AMQPAnnotations{
+			"deliveryAnnotation1": "deliveryAnnotationValue1",
+		},
+		Footer: AMQPAnnotations{
+			"footer1": "footerValue1",
+		},
+		Header: &AMQPMessageHeader{
+			Durable:       false,
+			TTL:           time.Second,
+			DeliveryCount: 1,
+			Priority:      1,
+			FirstAcquirer: false,
+		},
+		MessageAnnotations: AMQPAnnotations{
+			"messageAnnotation1": "messageAnnotationValue1",
+		},
 		Properties: &AMQPMessageProperties{
 			MessageID:          "MessageID",
-			UserID:             []byte("UserID"),
 			To:                 to.StringPtr("To"),
 			Subject:            to.StringPtr("Subject"),
 			ReplyTo:            to.StringPtr("ReplyTo"),
@@ -188,18 +201,33 @@ func TestAMQPMessageToGoAMQPMessage(t *testing.T) {
 			GroupSequence:      &groupSeq,
 			ReplyToGroupID:     to.StringPtr("ReplyToGroupID"),
 		},
+		Value: "thevalue",
 	}
 
 	require.EqualValues(t, &amqp.Message{
-		Format: 1,
-		Data:   [][]byte{[]byte("data1"), []byte("data2")},
-		Value:  "thevalue",
 		ApplicationProperties: map[string]interface{}{
 			"AppProperty1": "AppPropertyValue1",
 		},
-		Properties: &amqp.MessageProperties{
+		Data:  [][]byte{[]byte("data1"), []byte("data2")},
+		Value: "thevalue",
+		DeliveryAnnotations: goamqp.Annotations{
+			"deliveryAnnotation1": "deliveryAnnotationValue1",
+		},
+		Footer: goamqp.Annotations{
+			"footer1": "footerValue1",
+		},
+		Header: &goamqp.MessageHeader{
+			Durable:       false,
+			TTL:           time.Second,
+			DeliveryCount: 1,
+			Priority:      1,
+			FirstAcquirer: false,
+		},
+		Annotations: goamqp.Annotations{
+			"messageAnnotation1": "messageAnnotationValue1",
+		},
+		Properties: &goamqp.MessageProperties{
 			MessageID:          "MessageID",
-			UserID:             []byte("UserID"),
 			To:                 to.StringPtr("To"),
 			Subject:            to.StringPtr("Subject"),
 			ReplyTo:            to.StringPtr("ReplyTo"),
@@ -227,11 +255,26 @@ func TestNewAMQPMessage(t *testing.T) {
 	groupSeq := uint32(101)
 
 	m = &goamqp.Message{
-		Format: 1,
-		Data:   [][]byte{[]byte("data1"), []byte("data2")},
-		Value:  "thevalue",
 		ApplicationProperties: map[string]interface{}{
 			"AppProperty1": "AppPropertyValue1",
+		},
+		Data:  [][]byte{[]byte("data1"), []byte("data2")},
+		Value: "thevalue",
+		DeliveryAnnotations: goamqp.Annotations{
+			"deliveryAnnotation1": "deliveryAnnotationValue1",
+		},
+		Footer: goamqp.Annotations{
+			"footer1": "footerValue1",
+		},
+		Header: &goamqp.MessageHeader{
+			Durable:       false,
+			TTL:           time.Second,
+			DeliveryCount: 1,
+			Priority:      1,
+			FirstAcquirer: false,
+		},
+		Annotations: goamqp.Annotations{
+			"messageAnnotation1": "messageAnnotationValue1",
 		},
 		Properties: &goamqp.MessageProperties{
 			MessageID:          "MessageID",
@@ -252,15 +295,28 @@ func TestNewAMQPMessage(t *testing.T) {
 	var ourAMQPMessage *AMQPMessage = newAMQPMessage(m)
 
 	require.EqualValues(t, &AMQPMessage{
-		Format: 1,
-		Data:   [][]byte{[]byte("data1"), []byte("data2")},
-		Value:  "thevalue",
 		ApplicationProperties: map[string]interface{}{
 			"AppProperty1": "AppPropertyValue1",
 		},
+		Data: [][]byte{[]byte("data1"), []byte("data2")},
+		DeliveryAnnotations: AMQPAnnotations{
+			"deliveryAnnotation1": "deliveryAnnotationValue1",
+		},
+		Footer: AMQPAnnotations{
+			"footer1": "footerValue1",
+		},
+		Header: &AMQPMessageHeader{
+			Durable:       false,
+			TTL:           time.Second,
+			DeliveryCount: 1,
+			Priority:      1,
+			FirstAcquirer: false,
+		},
+		MessageAnnotations: AMQPAnnotations{
+			"messageAnnotation1": "messageAnnotationValue1",
+		},
 		Properties: &AMQPMessageProperties{
 			MessageID:          "MessageID",
-			UserID:             []byte("UserID"),
 			To:                 to.StringPtr("To"),
 			Subject:            to.StringPtr("Subject"),
 			ReplyTo:            to.StringPtr("ReplyTo"),
@@ -273,6 +329,7 @@ func TestNewAMQPMessage(t *testing.T) {
 			GroupSequence:      &groupSeq,
 			ReplyToGroupID:     to.StringPtr("ReplyToGroupID"),
 		},
-		m: m,
+		Value: "thevalue",
+		m:     m,
 	}, ourAMQPMessage)
 }
