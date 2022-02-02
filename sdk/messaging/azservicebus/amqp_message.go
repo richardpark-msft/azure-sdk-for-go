@@ -3,7 +3,6 @@ package azservicebus
 import (
 	"time"
 
-	"github.com/Azure/go-amqp"
 	goamqp "github.com/Azure/go-amqp"
 )
 
@@ -99,39 +98,39 @@ type AMQPMessage struct {
 
 	// m is the original amqp.Message, as given to us by go-amqp. This is only needed
 	// when we're passing the message, opaquely, between our API and go-amqp.
-	m *amqp.Message
+	m *goamqp.Message
 }
 
 type AMQPAnnotations map[interface{}]interface{}
 
-// MessageProperties is the defined set of properties for AMQP messages.
+// AMQPMessageProperties is the defined set of properties for AMQP messages.
 type AMQPMessageProperties struct {
-	// Message-id, if set, uniquely identifies a message within the message system.
+	// MessageID, if set, uniquely identifies a message within the message system.
 	// The message producer is usually responsible for setting the message-id in
 	// such a way that it is assured to be globally unique. A broker MAY discard a
 	// message as a duplicate if the value of the message-id matches that of a
 	// previously received message sent to the same node.
 	MessageID interface{} // uint64, UUID, []byte, or string
 
-	// The identity of the user responsible for producing the message.
+	// UserID is the identity of the user responsible for producing the message.
 	// The client sets this value, and it MAY be authenticated by intermediaries.
 	UserID []byte
 
-	// The to field identifies the node that is the intended destination of the message.
+	// To identifies the node that is the intended destination of the message.
 	// On any given transfer this might not be the node at the receiving end of the link.
 	To *string
 
-	// A common field for summary information about the message content and purpose.
+	// Subject is a common field for summary information about the message content and purpose.
 	Subject *string
 
-	// The address of the node to send replies to.
+	// ReplyTo is the address of the node to send replies to.
 	ReplyTo *string
 
-	// This is a client-specific id that can be used to mark or identify messages
+	// CorrelationID is the client-specific id that can be used to mark or identify messages
 	// between clients.
 	CorrelationID interface{} // uint64, UUID, []byte, or string
 
-	// The RFC-2046 [RFC2046] MIME type for the message's application-data section
+	// ContentType is the RFC-2046 [RFC2046] MIME type for the message's application-data section
 	// (body). As per RFC-2046 [RFC2046] this can contain a charset parameter defining
 	// the character encoding used: e.g., 'text/plain; charset="utf-8"'.
 	//
@@ -144,8 +143,8 @@ type AMQPMessageProperties struct {
 	// content-type SHOULD NOT be set.
 	ContentType *string
 
-	// The content-encoding property is used as a modifier to the content-type.
-	// When present, its value indicates what additional content encodings have been
+	// ContentEncoding is the content-encoding property is used as a modifier to the
+	// content-type. When present, its value indicates what additional content encodings have been
 	// applied to the application-data, and thus what decoding mechanisms need to be
 	// applied in order to obtain the media-type referenced by the content-type header
 	// field.
@@ -169,19 +168,19 @@ type AMQPMessageProperties struct {
 	// be compatible with messages originally sent with other protocols, e.g. HTTP or SMTP.
 	ContentEncoding *string
 
-	// An absolute time when this message is considered to be expired.
+	// AbsoluteExpiryTime is an absolute time when this message is considered to be expired.
 	AbsoluteExpiryTime *time.Time
 
-	// An absolute time when this message was created.
+	// CreationTime is an absolute time when this message was created.
 	CreationTime *time.Time
 
-	// Identifies the group the message belongs to.
+	// GroupID identifies the group the message belongs to.
 	GroupID *string
 
-	// The relative position of this message within its group.
+	// GroupSequence identifies the relative position of this message within its group.
 	GroupSequence *uint32 // RFC-1982 sequence number
 
-	// This is a client-specific id that is used so that client can send replies to this
+	// ReplyToGroupID is the client-specific id that is used so that client can send replies to this
 	// message to a specific group.
 	ReplyToGroupID *string
 }
@@ -197,33 +196,13 @@ type AMQPMessageHeader struct {
 }
 
 func newAMQPMessage(m *goamqp.Message) *AMQPMessage {
-	var properties *AMQPMessageProperties
-
-	if m.Properties != nil {
-		properties = &AMQPMessageProperties{
-			MessageID:          m.Properties.MessageID,
-			UserID:             m.Properties.UserID,
-			To:                 m.Properties.To,
-			Subject:            m.Properties.Subject,
-			ReplyTo:            m.Properties.ReplyTo,
-			CorrelationID:      m.Properties.CorrelationID,
-			ContentType:        m.Properties.ContentType,
-			ContentEncoding:    m.Properties.ContentEncoding,
-			AbsoluteExpiryTime: m.Properties.AbsoluteExpiryTime,
-			CreationTime:       m.Properties.CreationTime,
-			GroupID:            m.Properties.GroupID,
-			GroupSequence:      m.Properties.GroupSequence,
-			ReplyToGroupID:     m.Properties.ReplyToGroupID,
-		}
-	}
-
 	return &AMQPMessage{
 		Format:                m.Format,
 		DeliveryTag:           m.DeliveryTag,
 		Header:                (*AMQPMessageHeader)(m.Header),
 		DeliveryAnnotations:   AMQPAnnotations(m.DeliveryAnnotations),
 		Annotations:           AMQPAnnotations(m.Annotations),
-		Properties:            properties,
+		Properties:            (*AMQPMessageProperties)(m.Properties),
 		ApplicationProperties: m.ApplicationProperties,
 		Data:                  m.Data,
 		Value:                 m.Value,
@@ -233,33 +212,13 @@ func newAMQPMessage(m *goamqp.Message) *AMQPMessage {
 }
 
 func (m *AMQPMessage) toGoAMQPMessage() *goamqp.Message {
-	var properties *goamqp.MessageProperties
-
-	if m.Properties != nil {
-		properties = &goamqp.MessageProperties{
-			MessageID:          m.Properties.MessageID,
-			UserID:             m.Properties.UserID,
-			To:                 m.Properties.To,
-			Subject:            m.Properties.Subject,
-			ReplyTo:            m.Properties.ReplyTo,
-			CorrelationID:      m.Properties.CorrelationID,
-			ContentType:        m.Properties.ContentType,
-			ContentEncoding:    m.Properties.ContentEncoding,
-			AbsoluteExpiryTime: m.Properties.AbsoluteExpiryTime,
-			CreationTime:       m.Properties.CreationTime,
-			GroupID:            m.Properties.GroupID,
-			GroupSequence:      m.Properties.GroupSequence,
-			ReplyToGroupID:     m.Properties.ReplyToGroupID,
-		}
-	}
-
 	return &goamqp.Message{
 		Format:                m.Format,
 		DeliveryTag:           m.DeliveryTag,
 		Header:                (*goamqp.MessageHeader)(m.Header),
+		Properties:            (*goamqp.MessageProperties)(m.Properties),
 		DeliveryAnnotations:   goamqp.Annotations(m.DeliveryAnnotations),
 		Annotations:           goamqp.Annotations(m.Annotations),
-		Properties:            properties,
 		ApplicationProperties: m.ApplicationProperties,
 		Data:                  m.Data,
 		Value:                 m.Value,

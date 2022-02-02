@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/go-amqp"
 	goamqp "github.com/Azure/go-amqp"
 	"github.com/stretchr/testify/require"
 )
@@ -154,4 +155,124 @@ func TestAMQPMessageToMessage(t *testing.T) {
 	require.EqualValues(t, map[string]interface{}{
 		"test": "foo",
 	}, msg.ApplicationProperties)
+}
+
+func TestAMQPMessageToGoAMQPMessage(t *testing.T) {
+	// defaults (ie, nothing set)
+	goAMQPMessage := (&AMQPMessage{}).toGoAMQPMessage()
+	require.EqualValues(t, &goamqp.Message{}, goAMQPMessage)
+
+	now := time.Now()
+	groupSeq := uint32(101)
+
+	// azservicebus -> goAMQP
+	ourAMQPMessage := &AMQPMessage{
+		Format: 1,
+		Data:   [][]byte{[]byte("data1"), []byte("data2")},
+		Value:  "thevalue",
+		ApplicationProperties: map[string]interface{}{
+			"AppProperty1": "AppPropertyValue1",
+		},
+		Properties: &AMQPMessageProperties{
+			MessageID:          "MessageID",
+			UserID:             []byte("UserID"),
+			To:                 to.StringPtr("To"),
+			Subject:            to.StringPtr("Subject"),
+			ReplyTo:            to.StringPtr("ReplyTo"),
+			CorrelationID:      to.StringPtr("CorrelationID"),
+			ContentType:        to.StringPtr("ContentType"),
+			ContentEncoding:    to.StringPtr("ContentEncoding"),
+			AbsoluteExpiryTime: to.TimePtr(now),
+			CreationTime:       to.TimePtr(now),
+			GroupID:            to.StringPtr("GroupID"),
+			GroupSequence:      &groupSeq,
+			ReplyToGroupID:     to.StringPtr("ReplyToGroupID"),
+		},
+	}
+
+	require.EqualValues(t, &amqp.Message{
+		Format: 1,
+		Data:   [][]byte{[]byte("data1"), []byte("data2")},
+		Value:  "thevalue",
+		ApplicationProperties: map[string]interface{}{
+			"AppProperty1": "AppPropertyValue1",
+		},
+		Properties: &amqp.MessageProperties{
+			MessageID:          "MessageID",
+			UserID:             []byte("UserID"),
+			To:                 to.StringPtr("To"),
+			Subject:            to.StringPtr("Subject"),
+			ReplyTo:            to.StringPtr("ReplyTo"),
+			CorrelationID:      to.StringPtr("CorrelationID"),
+			ContentType:        to.StringPtr("ContentType"),
+			ContentEncoding:    to.StringPtr("ContentEncoding"),
+			AbsoluteExpiryTime: to.TimePtr(now),
+			CreationTime:       to.TimePtr(now),
+			GroupID:            to.StringPtr("GroupID"),
+			GroupSequence:      &groupSeq,
+			ReplyToGroupID:     to.StringPtr("ReplyToGroupID"),
+		},
+	}, ourAMQPMessage.toGoAMQPMessage())
+}
+
+func TestNewAMQPMessage(t *testing.T) {
+	// goAMQP -> azservicebus
+	m := &goamqp.Message{}
+
+	require.EqualValues(t, &AMQPMessage{
+		m: m,
+	}, newAMQPMessage(m))
+
+	now := time.Now()
+	groupSeq := uint32(101)
+
+	m = &goamqp.Message{
+		Format: 1,
+		Data:   [][]byte{[]byte("data1"), []byte("data2")},
+		Value:  "thevalue",
+		ApplicationProperties: map[string]interface{}{
+			"AppProperty1": "AppPropertyValue1",
+		},
+		Properties: &goamqp.MessageProperties{
+			MessageID:          "MessageID",
+			UserID:             []byte("UserID"),
+			To:                 to.StringPtr("To"),
+			Subject:            to.StringPtr("Subject"),
+			ReplyTo:            to.StringPtr("ReplyTo"),
+			CorrelationID:      to.StringPtr("CorrelationID"),
+			ContentType:        to.StringPtr("ContentType"),
+			ContentEncoding:    to.StringPtr("ContentEncoding"),
+			AbsoluteExpiryTime: to.TimePtr(now),
+			CreationTime:       to.TimePtr(now),
+			GroupID:            to.StringPtr("GroupID"),
+			GroupSequence:      &groupSeq,
+			ReplyToGroupID:     to.StringPtr("ReplyToGroupID"),
+		},
+	}
+	var ourAMQPMessage *AMQPMessage = newAMQPMessage(m)
+
+	require.EqualValues(t, &AMQPMessage{
+		Format: 1,
+		Data:   [][]byte{[]byte("data1"), []byte("data2")},
+		Value:  "thevalue",
+		ApplicationProperties: map[string]interface{}{
+			"AppProperty1": "AppPropertyValue1",
+		},
+		Properties: &AMQPMessageProperties{
+			MessageID:          "MessageID",
+			UserID:             []byte("UserID"),
+			To:                 to.StringPtr("To"),
+			Subject:            to.StringPtr("Subject"),
+			ReplyTo:            to.StringPtr("ReplyTo"),
+			CorrelationID:      to.StringPtr("CorrelationID"),
+			ContentType:        to.StringPtr("ContentType"),
+			ContentEncoding:    to.StringPtr("ContentEncoding"),
+			AbsoluteExpiryTime: to.TimePtr(now),
+			CreationTime:       to.TimePtr(now),
+			GroupID:            to.StringPtr("GroupID"),
+			GroupSequence:      &groupSeq,
+			ReplyToGroupID:     to.StringPtr("ReplyToGroupID"),
+		},
+		m: m,
+	}, ourAMQPMessage)
 }
