@@ -318,7 +318,7 @@ func TestAMQPLinksMultipleWithSameConnection(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		err = links.RecoverIfNeeded(context.Background(), lwr.ID, &amqp.DetachError{})
+		err := links.RecoverIfNeeded(context.Background(), lwr.ID, &amqp.DetachError{})
 		require.NoError(t, err)
 	}()
 
@@ -327,7 +327,7 @@ func TestAMQPLinksMultipleWithSameConnection(t *testing.T) {
 	go func() {
 		defer wg.Done()
 
-		err = links2.RecoverIfNeeded(context.Background(), lwr2.ID, &amqp.DetachError{})
+		err := links2.RecoverIfNeeded(context.Background(), lwr2.ID, &amqp.DetachError{})
 		require.NoError(t, err)
 	}()
 
@@ -552,6 +552,58 @@ func TestAMQPLinks_Logging(t *testing.T) {
 			"[azsb.Conn] recreating link: c: true, current:{0 0}, old:{0 0}", "[azsb.Conn] Recovered connection and links",
 		}, messages)
 	})
+}
+
+func TestAMQPLinks_CBSNegotiateRecovery(t *testing.T) {
+	entityPath, cleanup := test.CreateExpiringQueue(t, nil)
+	defer cleanup()
+
+	cs := test.GetConnectionString(t)
+	ns, err := NewNamespace(NamespaceWithConnectionString(cs))
+	require.NoError(t, err)
+
+	links := ns.NewAMQPLinks(entityPath, func(ctx context.Context, session AMQPSession) (AMQPSenderCloser, AMQPReceiverCloser, error) {
+		return newLinksForAMQPLinksTest(entityPath, session)
+	})
+	require.NoError(t, err)
+
+	lwid, err := links.Get(context.Background())
+	require.NoError(t, err)
+
+	// recover the connection (simulating what happens in a negotiateClaim)
+	recovered, err := ns.Recover(context.Background(), lwid.ID.Conn)
+	require.True(t, recovered)
+
+	err = lwid.Sender.Send(context.Background(), &amqp.Message{
+		Data: [][]byte{
+			[]byte("hello"),
+		},
+	})
+	require.ErrorIs(t, err, amqp.ErrConnClosed)
+
+	msg, err := lwid.Receiver.Receive(context.Background())
+	require.Nil(t, msg)
+	require.ErrorIs(t, err, amqp.ErrConnClosed)
+
+	// recover the links, basically as we would in our higher level code (passing in the last
+	// acquired link ID (lwid.ID))
+	require.NoError(t, links.RecoverIfNeeded(context.Background(), lwid.ID, err))
+
+	// refresh our locally held links
+	lwid, err = links.Get(context.Background())
+	require.NoError(t, err)
+
+	err = lwid.Sender.Send(context.Background(), &amqp.Message{
+		Data: [][]byte{
+			[]byte("hello"),
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, lwid.Receiver.IssueCredit(1))
+	msg, err = lwid.Receiver.Receive(context.Background())
+	require.NotNil(t, msg)
+	require.NoError(t, err)
 }
 
 func newLinksForAMQPLinksTest(entityPath string, session AMQPSession) (AMQPSenderCloser, AMQPReceiverCloser, error) {
