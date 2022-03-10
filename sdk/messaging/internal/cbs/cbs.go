@@ -27,7 +27,6 @@ package cbs
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/devigned/tab"
 
@@ -79,7 +78,7 @@ func NegotiateClaim(ctx context.Context, audience string, conn *amqp.Client, pro
 		},
 	}
 
-	res, err := link.RetryableRPC(ctx, 3, 1*time.Second, msg)
+	res, err := link.RPC(ctx, msg)
 	if err != nil {
 		tab.For(ctx).Error(err)
 		return err
