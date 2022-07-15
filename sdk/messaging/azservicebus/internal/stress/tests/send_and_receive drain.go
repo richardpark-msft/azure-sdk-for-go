@@ -89,6 +89,8 @@ func SendAndReceiveDrain(remainingArgs []string) {
 				wg.Add(1)
 
 				func(m *azservicebus.ReceivedMessage) {
+					defer wg.Done()
+					
 					if len(m.Body) != bodyLen {
 						sc.PanicOnError("Body length issue", fmt.Errorf("Invalid body length - expected %d, got %d", bodyLen, len(m.Body)))
 					}
