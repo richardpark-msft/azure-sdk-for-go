@@ -7,16 +7,20 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
 	"github.com/joho/godotenv"
+)
+
+const (
+	EventStress azlog.Event = "stress"
 )
 
 type TestContext struct {
@@ -28,7 +32,7 @@ func MustGenerateMessages(sc *StressContext, sender *azservicebus.Sender, messag
 	ctx, cancel := context.WithCancel(sc.Context)
 	defer cancel()
 
-	log.Printf("Sending %d messages", messageLimit)
+	azlog.Writef(EventStress, "Sending %d messages", messageLimit)
 
 	streamingBatch, err := NewStreamingMessageBatch(ctx, &senderWrapper{inner: sender}, stats)
 	sc.PanicOnError("failed to create streaming batch", err)
@@ -73,8 +77,8 @@ func MustCreateAutoDeletingQueue(sc *StressContext, queueName string, qp *admin.
 }
 
 func MustCreateSubscriptions(sc *StressContext, topicName string, subscriptionNames []string) func() {
-	log.Printf("[BEGIN] Creating topic %s", topicName)
-	defer log.Printf("[END] Creating topic %s", topicName)
+	azlog.Writef(EventStress, "[BEGIN] Creating topic %s", topicName)
+	defer azlog.Writef(EventStress, "[END] Creating topic %s", topicName)
 
 	ac, err := admin.NewClientFromConnectionString(sc.ConnectionString, nil)
 	sc.PanicOnError("Failed to create a topic manager", err)

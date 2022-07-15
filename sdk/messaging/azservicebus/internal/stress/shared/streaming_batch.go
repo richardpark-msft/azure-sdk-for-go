@@ -5,9 +5,9 @@ package shared
 
 import (
 	"context"
-	"log"
 	"time"
 
+	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 )
 
@@ -67,7 +67,7 @@ func (sb *StreamingMessageBatch) Add(ctx context.Context, msg *azservicebus.Mess
 		return err
 	}
 
-	log.Printf("Sending message batch (%d messages)", sb.currentBatch.NumMessages())
+	azlog.Writef(EventStress, "Sending message batch (%d messages)", sb.currentBatch.NumMessages())
 	if err := sb.sender.SendMessageBatch(ctx, sb.currentBatch); err != nil {
 		return err
 	}
@@ -101,7 +101,7 @@ func (sb *StreamingMessageBatch) Close(ctx context.Context) error {
 		return nil
 	}
 
-	log.Printf("Sending final message batch")
+	azlog.Writef(EventStress, "Sending final message batch")
 	if err := sb.sender.SendMessageBatch(ctx, sb.currentBatch); err != nil {
 		return err
 	}

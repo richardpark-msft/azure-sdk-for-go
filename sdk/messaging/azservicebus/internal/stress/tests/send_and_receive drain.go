@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
+	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/stress/shared"
@@ -45,6 +47,8 @@ func SendAndReceiveDrain(remainingArgs []string) {
 	receiver, err := client.NewReceiverForQueue(queueName, nil)
 	sc.PanicOnError("Failed to create receiver", err)
 
+	stat := sc.NewStat("test")
+
 	for i := 0; i < 1000; i++ {
 		log.Printf("=====> Round [%d] <====", i)
 
@@ -52,7 +56,7 @@ func SendAndReceiveDrain(remainingArgs []string) {
 		const bodyLen = 4096
 		shared.MustGenerateMessages(sc, sender, numToSend, bodyLen, nil)
 
-		totalCompleted := 0
+		var totalCompleted int64
 
 		for totalCompleted < numToSend {
 			log.Printf("Receiving messages [%d/%d]...", totalCompleted, numToSend)
@@ -74,22 +78,33 @@ func SendAndReceiveDrain(remainingArgs []string) {
 				sc.PanicOnError("Exceeded a minute while waiting for messages", err)
 			}
 
-			log.Printf("Got %d messages, completing...", len(messages))
+			stat.AddReceived(int32(len(messages)))
+			sc.PrintStats()
+
+			azlog.Writef("stress", "Got %d messages, completing...", len(messages))
+
+			wg := sync.WaitGroup{}
 
 			for _, m := range messages {
-				if len(m.Body) != bodyLen {
-					sc.PanicOnError("Body length issue", fmt.Errorf("Invalid body length - expected %d, got %d", bodyLen, len(m.Body)))
-				}
+				wg.Add(1)
 
-				if err := receiver.CompleteMessage(sc.Context, m, nil); err != nil {
-					sc.PanicOnError("Failed to complete message", err)
-				}
-				totalCompleted++
+				func(m *azservicebus.ReceivedMessage) {
+					if len(m.Body) != bodyLen {
+						sc.PanicOnError("Body length issue", fmt.Errorf("Invalid body length - expected %d, got %d", bodyLen, len(m.Body)))
+					}
+
+					if err := receiver.CompleteMessage(sc.Context, m, nil); err != nil {
+						sc.PanicOnError("Failed to complete message", err)
+					}
+
+					stat.AddCompleted(1)
+				}(m)
 			}
 
-			if err != nil {
-				panic(err)
-			}
+			wg.Wait()
+
+			azlog.Writef("stress", "Done completing messages")
+			sc.PrintStats()
 		}
 
 		log.Printf("[end] Receiving messages (all received)")

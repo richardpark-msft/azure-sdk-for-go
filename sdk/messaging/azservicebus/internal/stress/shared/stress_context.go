@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	azlog "github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
+	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus"
 	"github.com/microsoft/ApplicationInsights-Go/appinsights"
 )
@@ -65,7 +65,12 @@ func MustCreateStressContext(testName string) *StressContext {
 
 	ctx, cancel := NewCtrlCContext()
 
-	azlog.SetEvents(azservicebus.EventSender, azservicebus.EventReceiver, azservicebus.EventConn, azservicebus.EventAuth)
+	azlog.SetEvents(
+		EventStress,
+		azservicebus.EventSender,
+		azservicebus.EventReceiver,
+		azservicebus.EventConn,
+		azservicebus.EventAuth)
 
 	logMessages := make(chan string, 10000)
 
@@ -110,12 +115,12 @@ func (sc *StressContext) Start(entityName string, attributes map[string]string) 
 		startEvent.Properties[k] = v
 	}
 
-	log.Printf("Start: %#v", startEvent.Properties)
+	azlog.Writef(EventStress, "Start: %#v", startEvent.Properties)
 	sc.Track(startEvent)
 }
 
 func (sc *StressContext) End() {
-	log.Printf("Stopping and flushing telemetry")
+	azlog.Writef(EventStress, "Stopping and flushing telemetry")
 
 	sc.cancel()
 
@@ -140,7 +145,7 @@ PrintLoop:
 	// dump out the last stats.
 	sc.PrintStats()
 
-	log.Printf("Done")
+	azlog.Writef(EventStress, "Done")
 }
 
 // PanicOnError logs, sends telemetry and then closes on error
@@ -162,7 +167,7 @@ func (tracker *StressContext) Assert(condition bool, message string) {
 
 func (sc *StressContext) LogIfFailed(message string, err error, stats *Stats) {
 	if err != nil {
-		log.Printf("Error: %s: %#v, %T", message, err, err)
+		azlog.Writef(EventStress, "Error: %s: %#v, %T", message, err, err)
 
 		if stats != nil {
 			atomic.AddInt32(&stats.Errors, 1)
