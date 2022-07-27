@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -38,17 +39,6 @@ type ConsumerClientOptions struct {
 	// RetryOptions controls how often operations are retried from this client and any
 	// Receivers and Senders created from this client.
 	RetryOptions RetryOptions
-
-	// StartPosition is the position we will start receiving events from,
-	// either an offset (inclusive) with Offset, or receiving events received
-	// after a specific time using EnqueuedTime.
-	StartPosition StartPosition
-
-	// OwnerLevel is the priority for this consumer, also known as the 'epoch' level.
-	// When used, a consumer with a higher OwnerLevel will take ownership of a partition
-	// from consumers with a lower OwnerLevel.
-	// Default is off.
-	OwnerLevel *uint64
 }
 
 // StartPosition indicates the position to start receiving events within a partition.
@@ -84,24 +74,21 @@ type ConsumerClient struct {
 	namespace     *internal.Namespace
 	eventHub      string
 	consumerGroup string
-	partitionID   string
 	ownerLevel    *uint64
 
-	offsetExpression string
-
-	links *internal.Links[amqpwrap.AMQPReceiverCloser]
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewConsumerClient creates a ConsumerClient which uses an azcore.TokenCredential for authentication.
 // The consumerGroup is the consumer group for this consumer.
 // The fullyQualifiedNamespace is the Event Hubs namespace name (ex: myeventhub.servicebus.windows.net)
 // The credential is one of the credentials in the `github.com/Azure/azure-sdk-for-go/sdk/azidentity` package.
-func NewConsumerClient(consumerGroup string, fullyQualifiedNamespace string, eventHub string, partitionID string, credential azcore.TokenCredential, options *ConsumerClientOptions) (*ConsumerClient, error) {
+func NewConsumerClient(consumerGroup string, fullyQualifiedNamespace string, eventHub string, credential azcore.TokenCredential, options *ConsumerClientOptions) (*ConsumerClient, error) {
 	return newConsumerClientImpl(consumerClientArgs{
 		fullyQualifiedNamespace: fullyQualifiedNamespace,
 		credential:              credential,
 		eventHub:                eventHub,
-		partitionID:             partitionID,
 		consumerGroup:           consumerGroup,
 	}, options)
 }
@@ -122,9 +109,8 @@ func NewConsumerClientFromConnectionString(consumerGroup string, connectionStrin
 
 	return newConsumerClientImpl(consumerClientArgs{
 		connectionString: connectionString,
-		// eventHub will come from the connection string itself.
-		partitionID:   partitionID,
-		consumerGroup: consumerGroup,
+		consumerGroup:    consumerGroup,
+		eventHub:         parsedConn.HubName,
 	}, options)
 }
 
@@ -135,21 +121,115 @@ func NewConsumerClientForHubFromConnectionString(consumerGroup string, connectio
 	return newConsumerClientImpl(consumerClientArgs{
 		connectionString: connectionString,
 		eventHub:         eventHub,
-		partitionID:      partitionID,
 		consumerGroup:    consumerGroup,
 	}, options)
 }
 
 // ReceiveEventsOptions contains optional parameters for the ReceiveEvents function
 type ReceiveEventsOptions struct {
-	// For future expansion
+	// StartPosition is the position we will start receiving events from,
+	// either an offset (inclusive) with Offset, or receiving events received
+	// after a specific time using EnqueuedTime.
+	StartPosition StartPosition
+
+	// OwnerLevel is the priority for this consumer, also known as the 'epoch' level.
+	// When used, a consumer with a higher OwnerLevel will take ownership of a partition
+	// from consumers with a lower OwnerLevel.
+	// Default is off.
+	OwnerLevel *uint64
 }
 
-// ReceiveEvents receives events until the context has expired or been cancelled.
-func (cc *ConsumerClient) ReceiveEvents(ctx context.Context, count int, options *ReceiveEventsOptions) ([]*ReceivedEventData, error) {
+type Subscription struct {
+	eventsChan <-chan []*ReceivedEventData
+
+	errValue atomic.Value
+	ctx      context.Context
+
+	cancel context.CancelFunc
+}
+
+func (s *Subscription) Events() <-chan []*ReceivedEventData {
+	return s.eventsChan
+}
+
+func (s *Subscription) Err() error {
+	err := s.errValue.Load().(error)
+	return err
+}
+
+func (s *Subscription) Done() <-chan struct{} {
+	return s.ctx.Done()
+}
+
+func (s *Subscription) Close() {
+	s.closeWithError(nil)
+}
+
+func (s *Subscription) closeWithError(err error) {
+	if err != nil {
+		s.errValue.Store(err)
+	}
+	s.cancel()
+}
+
+func (cc *ConsumerClient) ReceiveEventsFromPartition(partitionID string, batchSize int, maxBatches int, options *ReceiveEventsOptions) (*Subscription, error) {
+	batchChan := make(chan []*ReceivedEventData, maxBatches)
+
+	sub := &Subscription{
+		eventsChan: batchChan,
+		errValue:   atomic.Value{},
+	}
+
+	sub.ctx, sub.cancel = context.WithCancel(cc.ctx)
+
+	go func() {
+		defer close(batchChan)
+
+		var sp StartPosition
+
+		if options != nil {
+			sp = options.StartPosition
+		}
+
+		var offsetExpression string = getOffsetExpression(sp)
+
+		newLinkFn := func(ctx context.Context, session amqpwrap.AMQPSession, entityPath string) (internal.AMQPReceiverCloser, error) {
+			return cc.newEventHubConsumerLink(ctx, session, entityPath, offsetExpression)
+		}
+
+		links := internal.NewLinks[amqpwrap.AMQPReceiverCloser](cc.namespace, fmt.Sprintf("%s/$management", cc.getEntityPath), cc.getEntityPath, newLinkFn)
+
+		defer func() {
+			if err := links.Close(context.Background()); err != nil {
+				log.Writef(EventConsumer, "Error when closing links for partition ID %s: %s", partitionID, err)
+			}
+		}()
+
+		for {
+			events, err := cc.receiveEventsImpl(sub.ctx, partitionID, batchSize, links)
+
+			if err != nil {
+				log.Writef(EventConsumer, "Consumer for partition ID %s failed: %s", partitionID, err)
+				sub.closeWithError(err)
+				return
+			}
+
+			batchChan <- events
+
+			offsetExpression = getOffsetExpression(StartPosition{
+				SequenceNumber: to.Ptr(events[len(events)-1].SequenceNumber),
+				Inclusive:      false,
+			})
+		}
+	}()
+
+	return sub, nil
+}
+
+func (cc *ConsumerClient) receiveEventsImpl(ctx context.Context, partitionID string, count int, links *internal.Links[amqpwrap.AMQPReceiverCloser]) ([]*ReceivedEventData, error) {
 	var events []*ReceivedEventData
 
-	err := cc.links.Retry(ctx, EventConsumer, "ReceiveEvents", cc.partitionID, cc.retryOptions, func(ctx context.Context, lwid internal.LinkWithID[amqpwrap.AMQPReceiverCloser]) error {
+	err := links.Retry(ctx, EventConsumer, "ReceiveEvents", partitionID, cc.retryOptions, func(ctx context.Context, lwid internal.LinkWithID[amqpwrap.AMQPReceiverCloser]) error {
 		events = nil
 
 		outstandingCredits := lwid.Link.Credits()
@@ -191,11 +271,6 @@ func (cc *ConsumerClient) ReceiveEvents(ctx context.Context, count int, options 
 		// TODO: if we get a "partition ownership lost" we need to think about whether that's retryable.
 		return nil, internal.TransformError(err)
 	}
-
-	cc.offsetExpression = getOffsetExpression(StartPosition{
-		SequenceNumber: to.Ptr(events[len(events)-1].SequenceNumber),
-		Inclusive:      false,
-	})
 
 	return events, nil
 }
@@ -271,13 +346,13 @@ func (cc *ConsumerClient) getEntityPath(partitionID string) string {
 
 const defaultLinkRxBuffer = 2048
 
-func (cc *ConsumerClient) newEventHubConsumerLink(ctx context.Context, session amqpwrap.AMQPSession, entityPath string) (internal.AMQPReceiverCloser, error) {
+func (cc *ConsumerClient) newEventHubConsumerLink(ctx context.Context, session amqpwrap.AMQPSession, entityPath string, offsetExpression string) (internal.AMQPReceiverCloser, error) {
 	receiver, err := session.NewReceiver(ctx, entityPath, &amqp.ReceiverOptions{
 		SettlementMode: to.Ptr(amqp.ModeFirst),
 		ManualCredits:  true,
 		Credit:         defaultLinkRxBuffer,
 		Filters: []amqp.LinkFilter{
-			amqp.LinkFilterSelector(cc.offsetExpression),
+			amqp.LinkFilterSelector(offsetExpression),
 		},
 	})
 
@@ -295,8 +370,7 @@ type consumerClientArgs struct {
 	fullyQualifiedNamespace string
 	credential              azcore.TokenCredential
 
-	eventHub    string
-	partitionID string
+	eventHub string
 
 	consumerGroup string
 }
@@ -307,12 +381,12 @@ func newConsumerClientImpl(args consumerClientArgs, options *ConsumerClientOptio
 	}
 
 	client := &ConsumerClient{
-		eventHub:         args.eventHub,
-		partitionID:      args.partitionID,
-		ownerLevel:       options.OwnerLevel,
-		consumerGroup:    args.consumerGroup,
-		offsetExpression: getOffsetExpression(options.StartPosition),
+		eventHub:      args.eventHub,
+		ownerLevel:    options.OwnerLevel,
+		consumerGroup: args.consumerGroup,
 	}
+
+	client.ctx, client.cancel = context.WithCancel(context.Background())
 
 	var err error
 	var nsOptions []internal.NamespaceOption
