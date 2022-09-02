@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/test"
 	"github.com/stretchr/testify/require"
@@ -142,6 +143,48 @@ func TestNewProducerClient_SendToAny(t *testing.T) {
 	require.ErrorIs(t, ctx.Err(), context.Canceled)
 }
 
+func TestNewProducerClient_RoundTrip(t *testing.T) {
+	testParams := test.GetConnectionParamsForTest(t)
+
+	producer, err := azeventhubs.NewProducerClientFromConnectionString(testParams.ConnectionString, testParams.EventHubName, nil)
+	require.NoError(t, err)
+
+	consumer, err := azeventhubs.NewConsumerClientFromConnectionString(testParams.ConnectionString, testParams.EventHubName, azeventhubs.DefaultConsumerGroup, nil)
+	require.NoError(t, err)
+	defer closeClient(t, consumer)
+
+	eventToSend := &azeventhubs.EventData{
+		Body:          []byte("body"),
+		MessageID:     to.Ptr("message-id"),
+		CorrelationID: "correlation-id",
+		ContentType:   to.Ptr("content-type"),
+		Properties: map[string]any{
+			"property1": "hello",
+		},
+	}
+
+	beforeSend := sendEvents(t, producer, []*azeventhubs.EventData{eventToSend}, "0")
+
+	partClient, err := consumer.NewPartitionClient("0", &azeventhubs.NewPartitionClientOptions{
+		StartPosition: beforeSend,
+	})
+	require.NoError(t, err)
+	defer closeClient(t, partClient)
+
+	events, err := partClient.ReceiveEvents(context.Background(), 1, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, *eventToSend, events[0].EventData)
+
+	// check received message fields
+	require.NotZero(t, *events[0].EnqueuedTime)
+	require.NotNil(t, events[0].Offset)
+	require.GreaterOrEqual(t, events[0].SequenceNumber, int64(0))
+
+	// we do initialize this if we ever got a system property, but I've not seen one yet.
+	require.NotEmpty(t, events[0].SystemProperties)
+}
+
 func getPartitions(t *testing.T, testParams test.ConnectionParamsForTest) []azeventhubs.PartitionProperties {
 	producer, err := azeventhubs.NewProducerClientFromConnectionString(testParams.ConnectionString, testParams.EventHubName, nil)
 	require.NoError(t, err)
@@ -203,7 +246,7 @@ func sendAndReceiveToPartitionTest(t *testing.T, cs string, eventHubName string,
 
 		err = batch.AddEventData(&azeventhubs.EventData{
 			Body: []byte(msg),
-			ApplicationProperties: map[string]any{
+			Properties: map[string]any{
 				"PartitionID": partitionID,
 				"RunID":       runID,
 			},

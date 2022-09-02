@@ -112,14 +112,14 @@ func sendEventsToPartition(cs string, hubName string, partitionID string, messag
 	for i := 0; i < messageLimit; i++ {
 		ed := &azeventhubs.EventData{
 			Body: extraBytes,
-			ApplicationProperties: map[string]interface{}{
+			Properties: map[string]interface{}{
 				numProperty:       i,
 				partitionProperty: partitionID,
 			},
 		}
 
 		if i == (messageLimit - 1) {
-			ed.ApplicationProperties[endProperty] = messageLimit
+			ed.Properties[endProperty] = messageLimit
 		}
 
 		err := batch.AddEventData(ed, nil)

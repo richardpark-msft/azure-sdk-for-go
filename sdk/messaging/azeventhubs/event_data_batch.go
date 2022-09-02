@@ -76,6 +76,10 @@ func (mb *EventDataBatch) toAMQPMessage() *amqp.Message {
 	mb.batchEnvelope.Data = make([][]byte, len(mb.marshaledMessages))
 	mb.batchEnvelope.Format = batchMessageFormat
 
+	if mb.batchEnvelope.Annotations == nil {
+		mb.batchEnvelope.Annotations = map[any]any{}
+	}
+
 	if mb.partitionKey != nil {
 		mb.batchEnvelope.Annotations[partitionKeyAnnotation] = *mb.partitionKey
 	}

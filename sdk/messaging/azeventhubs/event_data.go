@@ -3,6 +3,7 @@
 package azeventhubs
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -12,7 +13,7 @@ import (
 // EventData is an event that can be sent, using the ProducerClient, to an Event Hub.
 type EventData struct {
 	// ApplicationProperties can be used to store custom metadata for a message.
-	ApplicationProperties map[string]any
+	Properties map[string]any
 
 	// Body is the payload for a message.
 	Body []byte
@@ -21,41 +22,28 @@ type EventData struct {
 	// the format of Content-Type, specified by RFC2045 (ex: "application/json").
 	ContentType *string
 
+	// CorrelationID is a client-specific id that can be used to mark or identify messages
+	// between clients.
+	// The type of CorrelationID can be a uint64, UUID, []byte, or string
+	CorrelationID any
+
 	// MessageID is an application-defined value that uniquely identifies
 	// the message and its payload. The identifier is a free-form string.
 	//
 	// If enabled, the duplicate detection feature identifies and removes further submissions
 	// of messages with the same MessageId.
 	MessageID *string
-
-	// PartitionKey is used with a partitioned entity and enables assigning related messages
-	// to the same internal partition. This ensures that the submission sequence order is correctly
-	// recorded. The partition is chosen by a hash function in Event Hubs and cannot be chosen
-	// directly.
-	PartitionKey *string
 }
 
 // ReceivedEventData is an event that has been received using the ConsumerClient.
 type ReceivedEventData struct {
-	// ApplicationProperties can be used to store custom metadata for a message.
-	ApplicationProperties map[string]any
-
-	// Body is the payload for a message.
-	Body []byte
-
-	// ContentType describes the payload of the message, with a descriptor following
-	// the format of Content-Type, specified by RFC2045 (ex: "application/json").
-	ContentType *string
+	EventData
 
 	// EnqueuedTime is the UTC time when the message was accepted and stored by Event Hubs.
 	EnqueuedTime *time.Time
 
-	// MessageID is an application-defined value that uniquely identifies
-	// the message and its payload. The identifier is a free-form string.
-	//
-	// If enabled, the duplicate detection feature identifies and removes further submissions
-	// of messages with the same MessageId.
-	MessageID *string
+	// Offset is the offset of the event.
+	Offset *int64
 
 	// PartitionKey is used with a partitioned entity and enables assigning related messages
 	// to the same internal partition. This ensures that the submission sequence order is correctly
@@ -63,11 +51,17 @@ type ReceivedEventData struct {
 	// directly.
 	PartitionKey *string
 
-	// Offset is the offset of the event.
-	Offset *int64
-
 	// SequenceNumber is a unique number assigned to a message by Event Hubs.
 	SequenceNumber int64
+
+	// Properties set by the Event Hubs service.
+	SystemProperties map[string]any
+
+	// RawAMQPMessage is the AMQP message, as received by the client. This can be useful to get access
+	// to properties that are not exposed by ReceivedMessage such as payloads encoded into the
+	// Value or Sequence section, payloads sent as multiple Data sections, as well as Footer
+	// and Header fields.
+	RawAMQPMessage *AMQPAnnotatedMessage
 }
 
 // Event Hubs custom properties
@@ -94,18 +88,13 @@ func (e *EventData) toAMQPMessage() *amqp.Message {
 	}
 
 	amqpMsg.Properties.ContentType = e.ContentType
+	amqpMsg.Properties.CorrelationID = e.CorrelationID
 
-	if len(e.ApplicationProperties) > 0 {
+	if len(e.Properties) > 0 {
 		amqpMsg.ApplicationProperties = make(map[string]any)
-		for key, value := range e.ApplicationProperties {
+		for key, value := range e.Properties {
 			amqpMsg.ApplicationProperties[key] = value
 		}
-	}
-
-	amqpMsg.Annotations = map[any]any{}
-
-	if e.PartitionKey != nil {
-		amqpMsg.Annotations[partitionKeyAnnotation] = *e.PartitionKey
 	}
 
 	return amqpMsg
@@ -127,6 +116,7 @@ func newReceivedEventData(amqpMsg *amqp.Message) *ReceivedEventData {
 		}
 
 		re.ContentType = amqpMsg.Properties.ContentType
+		re.CorrelationID = amqpMsg.Properties.CorrelationID
 	}
 
 	if amqpMsg.ApplicationProperties != nil {
@@ -137,22 +127,34 @@ func newReceivedEventData(amqpMsg *amqp.Message) *ReceivedEventData {
 	}
 
 	if amqpMsg.Annotations != nil {
-		if sequenceNumber, ok := amqpMsg.Annotations[sequenceNumberAnnotation]; ok {
-			re.SequenceNumber = sequenceNumber.(int64)
-		}
+		for kAny, v := range amqpMsg.Annotations {
+			keyStr, keyIsString := kAny.(string)
 
-		if partitionKey, ok := amqpMsg.Annotations[partitionKeyAnnotation]; ok {
-			re.PartitionKey = to.Ptr(partitionKey.(string))
-		}
+			if !keyIsString {
+				continue
+			}
 
-		if enqueuedTime, ok := amqpMsg.Annotations[enqueuedTimeAnnotation]; ok {
-			t := enqueuedTime.(time.Time)
-			re.EnqueuedTime = &t
-		}
+			switch keyStr {
+			case sequenceNumberAnnotation:
+				re.SequenceNumber = v.(int64)
+			case partitionKeyAnnotation:
+				re.PartitionKey = to.Ptr(v.(string))
+			case enqueuedTimeAnnotation:
+				t := v.(time.Time)
+				re.EnqueuedTime = &t
+			case offsetNumberAnnotation:
+				if offsetStr, ok := v.(string); ok {
+					if offset, err := strconv.ParseInt(offsetStr, 10, 64); err == nil {
+						re.Offset = &offset
+					}
+				}
+			default:
+				// any other annotations get put into the SystemProperties
+				if re.SystemProperties == nil {
+					re.SystemProperties = map[string]any{}
+				}
 
-		if offset, ok := amqpMsg.ApplicationProperties[offsetNumberAnnotation]; ok {
-			if offsetInt64, ok := offset.(int64); ok {
-				re.Offset = to.Ptr(int64(offsetInt64))
+				re.SystemProperties[keyStr] = v
 			}
 		}
 	}
