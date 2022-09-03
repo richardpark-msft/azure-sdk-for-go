@@ -18,7 +18,7 @@ import (
 )
 
 func TestUnit_Processor_loadBalancing(t *testing.T) {
-	cps := newCheckpointStoreForTest()
+	cps := test.newCheckpointStoreForTest()
 	firstProcessor := newProcessorForTest(t, "first-processor", cps)
 	newAddressForPartition := func(partitionID string) CheckpointStoreAddress {
 		return CheckpointStoreAddress{

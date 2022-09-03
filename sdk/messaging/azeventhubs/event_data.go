@@ -103,11 +103,14 @@ func (e *EventData) toAMQPMessage() *amqp.Message {
 // newReceivedEventData creates a received message from an AMQP message.
 // NOTE: this converter assumes that the Body of this message will be the first
 // serialized byte array in the Data section of the messsage.
-func newReceivedEventData(amqpMsg *amqp.Message) *ReceivedEventData {
-	re := &ReceivedEventData{}
+func newReceivedEventData(tmp *amqp.Message) *ReceivedEventData {
+	amqpMsg := newAMQPAnnotatedMessage(tmp)
+	re := &ReceivedEventData{
+		RawAMQPMessage: amqpMsg,
+	}
 
-	if len(amqpMsg.Data) == 1 {
-		re.Body = amqpMsg.Data[0]
+	if len(amqpMsg.Body.Data) == 1 {
+		re.Body = amqpMsg.Body.Data[0]
 	}
 
 	if amqpMsg.Properties != nil {
@@ -120,44 +123,57 @@ func newReceivedEventData(amqpMsg *amqp.Message) *ReceivedEventData {
 	}
 
 	if amqpMsg.ApplicationProperties != nil {
-		re.ApplicationProperties = make(map[string]any, len(amqpMsg.ApplicationProperties))
+		re.Properties = make(map[string]any, len(amqpMsg.ApplicationProperties))
 		for key, value := range amqpMsg.ApplicationProperties {
-			re.ApplicationProperties[key] = value
+			re.Properties[key] = value
 		}
 	}
 
-	if amqpMsg.Annotations != nil {
-		for kAny, v := range amqpMsg.Annotations {
-			keyStr, keyIsString := kAny.(string)
-
-			if !keyIsString {
-				continue
-			}
-
-			switch keyStr {
-			case sequenceNumberAnnotation:
-				re.SequenceNumber = v.(int64)
-			case partitionKeyAnnotation:
-				re.PartitionKey = to.Ptr(v.(string))
-			case enqueuedTimeAnnotation:
-				t := v.(time.Time)
-				re.EnqueuedTime = &t
-			case offsetNumberAnnotation:
-				if offsetStr, ok := v.(string); ok {
-					if offset, err := strconv.ParseInt(offsetStr, 10, 64); err == nil {
-						re.Offset = &offset
-					}
-				}
-			default:
-				// any other annotations get put into the SystemProperties
-				if re.SystemProperties == nil {
-					re.SystemProperties = map[string]any{}
-				}
-
-				re.SystemProperties[keyStr] = v
-			}
-		}
-	}
-
+	updateFromAMQPAnnotations(amqpMsg, re)
 	return re
+}
+
+// the "SystemProperties" in an EventData are any annotations that are
+// NOT available at the top level as normal fields. So excluing  sequence
+// number, offset, enqueued time, and  partition key.
+func updateFromAMQPAnnotations(src *AMQPAnnotatedMessage, dest *ReceivedEventData) {
+	if src.MessageAnnotations == nil {
+		return
+	}
+
+	for kAny, v := range src.MessageAnnotations {
+		keyStr, keyIsString := kAny.(string)
+
+		if !keyIsString {
+			continue
+		}
+
+		switch keyStr {
+		case sequenceNumberAnnotation:
+			if asInt64, ok := v.(int64); ok {
+				dest.SequenceNumber = asInt64
+			}
+		case partitionKeyAnnotation:
+			if asString, ok := v.(string); ok {
+				dest.PartitionKey = to.Ptr(asString)
+			}
+		case enqueuedTimeAnnotation:
+			if asTime, ok := v.(time.Time); ok {
+				dest.EnqueuedTime = &asTime
+			}
+		case offsetNumberAnnotation:
+			if offsetStr, ok := v.(string); ok {
+				if offset, err := strconv.ParseInt(offsetStr, 10, 64); err == nil {
+					dest.Offset = &offset
+				}
+			}
+		default:
+
+			if dest.SystemProperties == nil {
+				dest.SystemProperties = map[string]any{}
+			}
+
+			dest.SystemProperties[keyStr] = v
+		}
+	}
 }

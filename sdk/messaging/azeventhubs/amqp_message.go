@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-package azservicebus
+package azeventhubs
 
 import (
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/go-amqp"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/go-amqp"
 )
 
 // AMQPAnnotatedMessage represents the AMQP message, as received from Service Bus.
@@ -58,11 +58,6 @@ type AMQPAnnotatedMessage struct {
 	Properties *AMQPAnnotatedMessageProperties
 
 	linkName string
-
-	// inner is the AMQP message we originally received, which contains some hidden
-	// data that's needed to settle with go-amqp. We strip out most of the underlying
-	// data so it's fairly minimal.
-	inner *amqp.Message
 }
 
 // AMQPAnnotatedMessageProperties represents the properties of an AMQP message.
@@ -275,6 +270,5 @@ func newAMQPAnnotatedMessage(goAMQPMessage *amqp.Message) *AMQPAnnotatedMessage 
 		Header:              header,
 		linkName:            goAMQPMessage.LinkName(),
 		Properties:          properties,
-		inner:               goAMQPMessage,
 	}
 }

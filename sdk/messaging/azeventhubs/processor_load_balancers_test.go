@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/test"
 )
 
 func TestProcessorLoadBalancers_Greedy_EnoughUnownedPartitions(t *testing.T) {
-	cps := newCheckpointStoreForTest()
+	cps := test.newCheckpointStoreForTest()
 
 	_, err := cps.ClaimOwnership(context.Background(), []Ownership{
 		newTestOwnership("0", "some-other-client"),
@@ -34,7 +35,7 @@ func TestProcessorLoadBalancers_Greedy_EnoughUnownedPartitions(t *testing.T) {
 }
 
 func TestProcessorLoadBalancers_Balanced_UnownedPartitions(t *testing.T) {
-	cps := newCheckpointStoreForTest()
+	cps := test.newCheckpointStoreForTest()
 
 	_, err := cps.ClaimOwnership(context.Background(), []Ownership{
 		newTestOwnership("0", "some-other-client"),
@@ -57,7 +58,7 @@ func TestProcessorLoadBalancers_Balanced_UnownedPartitions(t *testing.T) {
 }
 
 func TestProcessorLoadBalancers_Greedy_ForcedToSteal(t *testing.T) {
-	cps := newCheckpointStoreForTest()
+	cps := test.newCheckpointStoreForTest()
 
 	const someOtherClientID = "some-other-client-id"
 	const stealingClientID = "stealing-client-id"
@@ -102,7 +103,7 @@ func TestProcessorLoadBalancers_Greedy_ForcedToSteal(t *testing.T) {
 func TestProcessorLoadBalancers_AnyStrategy_GrabExpiredPartition(t *testing.T) {
 	for _, strategy := range []ProcessorStrategy{ProcessorStrategyBalanced, ProcessorStrategyGreedy} {
 		t.Run(string(strategy), func(t *testing.T) {
-			cps := newCheckpointStoreForTest()
+			cps := test.newCheckpointStoreForTest()
 
 			const clientA = "clientA"
 			const clientB = "clientB"
@@ -136,7 +137,7 @@ func TestProcessorLoadBalancers_AnyStrategy_GrabExpiredPartition(t *testing.T) {
 func TestProcessorLoadBalancers_AnyStrategy_FullyBalancedOdd(t *testing.T) {
 	for _, strategy := range []ProcessorStrategy{ProcessorStrategyBalanced, ProcessorStrategyGreedy} {
 		t.Run(string(strategy), func(t *testing.T) {
-			cps := newCheckpointStoreForTest()
+			cps := test.newCheckpointStoreForTest()
 
 			const clientA = "clientA"
 			const clientB = "clientB"
@@ -174,7 +175,7 @@ func TestProcessorLoadBalancers_AnyStrategy_FullyBalancedOdd(t *testing.T) {
 func TestProcessorLoadBalancers_AnyStrategy_FullyBalancedEven(t *testing.T) {
 	for _, strategy := range []ProcessorStrategy{ProcessorStrategyBalanced, ProcessorStrategyGreedy} {
 		t.Run(string(strategy), func(t *testing.T) {
-			cps := newCheckpointStoreForTest()
+			cps := test.newCheckpointStoreForTest()
 
 			const clientA = "clientA"
 			const clientB = "clientB"
@@ -211,7 +212,7 @@ func TestProcessorLoadBalancers_AnyStrategy_FullyBalancedEven(t *testing.T) {
 func TestProcessorLoadBalancers_Any_GrabExtraPartitionBecauseAboveMax(t *testing.T) {
 	for _, strategy := range []ProcessorStrategy{ProcessorStrategyBalanced, ProcessorStrategyGreedy} {
 		t.Run(string(strategy), func(t *testing.T) {
-			cps := newCheckpointStoreForTest()
+			cps := test.newCheckpointStoreForTest()
 
 			const clientA = "clientA"
 			const clientB = "clientB"
@@ -239,7 +240,7 @@ func TestProcessorLoadBalancers_Any_GrabExtraPartitionBecauseAboveMax(t *testing
 func TestProcessorLoadBalancers_AnyStrategy_StealsToBalance(t *testing.T) {
 	for _, strategy := range []ProcessorStrategy{ProcessorStrategyBalanced, ProcessorStrategyGreedy} {
 		t.Run(string(strategy), func(t *testing.T) {
-			cps := newCheckpointStoreForTest()
+			cps := test.newCheckpointStoreForTest()
 
 			const lotsClientID = "has-too-many-client-id"
 			const littleClientID = "has-too-few-id"
@@ -281,7 +282,7 @@ func TestProcessorLoadBalancers_AnyStrategy_StealsToBalance(t *testing.T) {
 }
 
 func TestProcessorLoadBalancers_InvalidStrategy(t *testing.T) {
-	cps := newCheckpointStoreForTest()
+	cps := test.newCheckpointStoreForTest()
 
 	lb := newProcessorLoadBalancer(cps, newTestConsumerDetails("does not matter"), "", time.Hour)
 	ownerships, err := lb.LoadBalance(context.Background(), []string{"0"})

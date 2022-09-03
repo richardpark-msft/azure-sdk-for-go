@@ -143,7 +143,82 @@ func TestNewProducerClient_SendToAny(t *testing.T) {
 	require.ErrorIs(t, ctx.Err(), context.Canceled)
 }
 
-func TestNewProducerClient_RoundTrip(t *testing.T) {
+func ReceiveAny(t *testing.T, consumer *azeventhubs.ConsumerClient, eventsCh chan azeventhubs.ReceivedEventData) {
+	testParams := test.GetConnectionParamsForTest(t)
+
+	// consumer, err := azeventhubs.NewConsumerClientFromConnectionString(testParams.ConnectionString, testParams.EventHubName, azeventhubs.DefaultConsumerGroup, nil)
+	// require.NoError(t, err)
+	// defer closeClient(t, consumer)
+	processor := azeventhubs.NewProcessor(consumerClient, singleUserCheckpointStore{}, &azeventhubs.NewProcessorOptions{
+		LoadBalancingStrategy:       azeventhubs.ProcessorStrategyGreedy,
+		UpdateInterval:              time.Hour,
+		PartitionExpirationDuration: time.Hour,
+	})
+
+	overallCtx, cancelOverall := context.WithCancel(context.Background())
+	defer cancelOverall()
+
+	for {
+		go func() {
+			partClient := processor.NextPartitionClient(overallCtx)
+
+			if partClient == nil {
+				return
+			}
+
+			defer closeClient(t, partClient)
+
+			for {
+				ctx, cancel := context.WithTimeout(overallCtx, 10*time.Second)
+				events, err := partClient.ReceiveEvents(ctx, nil)
+				cancel()
+
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						// we're closing down.
+						break
+					}
+
+					if errors.Is(err, context.DeadlineExceeded) {
+						continue
+					}
+
+					require.NoError(t, err, "receive events until we hit our quota")
+				}
+
+				for _, e := range events {
+					select {
+					case eventsCh <- e:
+					default:
+						cancelOverall()
+						return // channel is full! we can be done.						
+				}
+			}
+		}()
+	}
+
+	processor.Run(overcallCtx)
+}
+
+type singleUserCheckpointStore struct{}
+
+func (su singleUserCheckpointStore) ClaimOwnership(ctx context.Context, partitionOwnership []azeventhubs.Ownership, options *azeventhubs.ClaimOwnershipOptions) ([]azeventhubs.Ownership, error) {
+	return partitionOwnership, nil
+}
+
+func (su singleUserCheckpointStore) ListCheckpoints(ctx context.Context, fullyQualifiedNamespace string, eventHubName string, consumerGroup string, options *azeventhubs.ListCheckpointsOptions) ([]azeventhubs.Checkpoint, error) {
+	return nil, nil
+}
+
+func (su singleUserCheckpointStore) ListOwnership(ctx context.Context, fullyQualifiedNamespace string, eventHubName string, consumerGroup string, options *azeventhubs.ListOwnershipOptions) ([]azeventhubs.Ownership, error) {
+	return nil
+}
+
+// UpdateCheckpoint updates a specific checkpoint with a sequence and offset.
+func (su *singleUserCheckpointStore) UpdateCheckpoint(ctx context.Context, checkpoint azeventhubs.Checkpoint, options *azeventhubs.UpdateCheckpointOptions) error {
+}
+
+func TestProducerClient_ReceiveModifyAndResend(t *testing.T) {
 	testParams := test.GetConnectionParamsForTest(t)
 
 	producer, err := azeventhubs.NewProducerClientFromConnectionString(testParams.ConnectionString, testParams.EventHubName, nil)
@@ -153,7 +228,7 @@ func TestNewProducerClient_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	defer closeClient(t, consumer)
 
-	eventToSend := &azeventhubs.EventData{
+	initialSentEvent := &azeventhubs.EventData{
 		Body:          []byte("body"),
 		MessageID:     to.Ptr("message-id"),
 		CorrelationID: "correlation-id",
@@ -163,26 +238,43 @@ func TestNewProducerClient_RoundTrip(t *testing.T) {
 		},
 	}
 
-	beforeSend := sendEvents(t, producer, []*azeventhubs.EventData{eventToSend}, "0")
+	// send one event - we'll receive it, transform it a bit and send it again.
+	startPosition := sendEvents(t, producer, []*azeventhubs.EventData{initialSentEvent}, "0")
 
 	partClient, err := consumer.NewPartitionClient("0", &azeventhubs.NewPartitionClientOptions{
-		StartPosition: beforeSend,
+		StartPosition: startPosition,
 	})
 	require.NoError(t, err)
 	defer closeClient(t, partClient)
 
+	// receive the event that we sent.
 	events, err := partClient.ReceiveEvents(context.Background(), 1, nil)
 	require.NoError(t, err)
 
-	require.Equal(t, *eventToSend, events[0].EventData)
+	require.Equal(t, *initialSentEvent, events[0].EventData)
 
-	// check received message fields
+	// check received event fields
 	require.NotZero(t, *events[0].EnqueuedTime)
 	require.NotNil(t, events[0].Offset)
-	require.GreaterOrEqual(t, events[0].SequenceNumber, int64(0))
+	require.GreaterOrEqual(t, events[0].SequenceNumber, int64(1))
+	require.Equal(t, "body", string(events[0].RawAMQPMessage.Body.Data[0]))
 
-	// we do initialize this if we ever got a system property, but I've not seen one yet.
-	require.NotEmpty(t, events[0].SystemProperties)
+	// send our "received" event again
+	newED := events[0].EventData
+	newED.Properties = map[string]any{
+		"tweakedevent": "new value",
+	}
+
+	_ = sendEvents(t, producer, []*azeventhubs.EventData{&newED}, "0")
+
+	roundTrippedEvents, err := partClient.ReceiveEvents(context.Background(), 1, nil)
+	require.NoError(t, err)
+
+	roundTrippedEvent := roundTrippedEvents[0]
+
+	require.Greater(t, roundTrippedEvents[0].SequenceNumber, events[0].SequenceNumber, "same data, but it's been sent and received 2x")
+	require.Equal(t, initialSentEvent.Body, roundTrippedEvent.Body)
+	require.Equal(t, "new value", roundTrippedEvent.Properties["tweakedevent"])
 }
 
 func getPartitions(t *testing.T, testParams test.ConnectionParamsForTest) []azeventhubs.PartitionProperties {
@@ -277,8 +369,11 @@ func sendAndReceiveToPartitionTest(t *testing.T, cs string, eventHubName string,
 		for _, event := range events {
 			actualBodies = append(actualBodies, string(event.Body))
 
-			require.Equal(t, partitionID, event.ApplicationProperties["PartitionID"], "No messages from other partitions")
-			require.Equal(t, runID, event.ApplicationProperties["RunID"], "No messages from older runs")
+			require.Equal(t, partitionID, event.Properties["PartitionID"], "No messages from other partitions")
+			require.Equal(t, runID, event.Properties["RunID"], "No messages from older runs")
+
+			require.Equal(t, string(event.RawAMQPMessage.Body.Data[0]), "hello world")
+			require.Equal(t, event.RawAMQPMessage.ApplicationProperties["PartitionID"], "No messages from other partitions")
 		}
 
 		if len(actualBodies) == len(expectedBodies) {

@@ -51,6 +51,15 @@ func (mb *EventDataBatch) AddEventData(ed *EventData, options *AddEventDataOptio
 	return mb.addAMQPMessage(ed.toAMQPMessage())
 }
 
+// AddAMQPAnnotatedMessage adds an AMQPAnnotatedMessage to the batch if the message will not exceed the max size of the batch
+// Returns:
+// - ErrMessageTooLarge if the message cannot fit
+// - a non-nil error for other failures
+// - nil, otherwise
+func (mb *EventDataBatch) AddAMQPAnnotatedMessage(amqpMessage *AMQPAnnotatedMessage, options *AddEventDataOptions) error {
+	return mb.addAMQPMessage(amqpMessage.toAMQPMessage())
+}
+
 // NumBytes is the number of bytes in the message batch
 func (mb *EventDataBatch) NumBytes() uint64 {
 	mb.mu.RLock()
