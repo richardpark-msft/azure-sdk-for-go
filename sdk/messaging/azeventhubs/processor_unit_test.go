@@ -203,7 +203,7 @@ func TestUnit_Processor_Run_singleConsumerPerPartition(t *testing.T) {
 	require.Equal(t, len(ehProps.PartitionIDs), cap(processor.nextClients))
 
 	// the first dispatch - we have a single partition available ("a") and it gets assigned
-	err = processor.dispatch(context.Background(), ehProps, consumersSyncMap)
+	err = processor.dispatch(context.Background(), ehProps.PartitionIDs, consumersSyncMap)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(processor.nextClients), "the client we created is ready to get picked up by NextPartitionClient()")
 
@@ -219,7 +219,7 @@ func TestUnit_Processor_Run_singleConsumerPerPartition(t *testing.T) {
 
 	// the second dispatch - we reaffirm our ownership of "a" _but_ since we're already processing it no new
 	// client is returned.
-	err = processor.dispatch(context.Background(), ehProps, consumersSyncMap)
+	err = processor.dispatch(context.Background(), ehProps.PartitionIDs, consumersSyncMap)
 	require.NoError(t, err)
 
 	// make sure we didn't create any new clients since we're already actively subscribed.
@@ -263,7 +263,7 @@ func TestUnit_Processor_Run_startPosition(t *testing.T) {
 	require.NoError(t, err)
 
 	consumers := sync.Map{}
-	err = processor.dispatch(context.Background(), ehProps, &consumers)
+	err = processor.dispatch(context.Background(), ehProps.PartitionIDs, &consumers)
 	require.NoError(t, err)
 
 	checkpoints, err := cps.ListCheckpoints(context.Background(),

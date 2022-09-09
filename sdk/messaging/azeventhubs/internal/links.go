@@ -176,6 +176,18 @@ func (l *Links[LinkT]) CloseLink(ctx context.Context, partitionID string) error 
 	return nil
 }
 
+func (l *Links[LinkT]) Exists(partitionID string) (bool, error) {
+	if err := l.checkOpen(); err != nil {
+		return false, err
+	}
+
+	l.linksMu.RLock()
+	current := l.links[partitionID]
+	l.linksMu.RUnlock()
+
+	return current != nil, nil
+}
+
 func (l *Links[LinkT]) GetLink(ctx context.Context, partitionID string) (*LinkWithID[LinkT], error) {
 	if err := l.checkOpen(); err != nil {
 		return nil, err

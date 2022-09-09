@@ -200,7 +200,7 @@ func (p *Processor) runImpl(ctx context.Context) error {
 	}
 
 	// do one dispatch immediately
-	if err := p.dispatch(ctx, eventHubProperties, consumers); err != nil {
+	if err := p.dispatch(ctx, eventHubProperties.PartitionIDs, consumers); err != nil {
 		return err
 	}
 
@@ -213,7 +213,7 @@ func (p *Processor) runImpl(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-time.After(calculateUpdateInterval(rnd, p.ownershipUpdateInterval)):
-			if err := p.dispatch(ctx, eventHubProperties, consumers); err != nil {
+			if err := p.dispatch(ctx, eventHubProperties.PartitionIDs, consumers); err != nil {
 				return err
 			}
 		}
@@ -242,8 +242,8 @@ func (p *Processor) initNextClientsCh(ctx context.Context) (EventHubProperties, 
 // dispatch uses the checkpoint store to figure out which partitions should be processed by this
 // instance and starts a PartitionClient, if there isn't one.
 // NOTE: due to random number usage in the load balancer, this function is not thread safe.
-func (p *Processor) dispatch(ctx context.Context, eventHubProperties EventHubProperties, consumers *sync.Map) error {
-	ownerships, err := p.lb.LoadBalance(ctx, eventHubProperties.PartitionIDs)
+func (p *Processor) dispatch(ctx context.Context, partitionIDs []string, consumers *sync.Map) error {
+	ownerships, err := p.lb.LoadBalance(ctx, partitionIDs)
 
 	if err != nil {
 		return err
