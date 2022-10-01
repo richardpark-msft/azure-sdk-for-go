@@ -56,7 +56,7 @@ func Run(remainingArgs []string) {
 	}
 
 	if err := shared.LoadEnvironment(); err != nil {
-		log.Fatalf("Failed to load .env file: %s", err.Error())
+		log.Fatalf("Failed to load environment: %s", err.Error())
 	}
 
 	testFn(remainingArgs[1:])

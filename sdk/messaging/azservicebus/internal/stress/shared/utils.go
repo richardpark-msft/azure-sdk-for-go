@@ -136,18 +136,20 @@ func ForceQueueDetach(ctx context.Context, adminClient *admin.Client, queue stri
 // If the env var `ENV_FILE` exists, we assume the value is a path to an .env file
 // Otherwise we fall back to loading from the current directory.
 func LoadEnvironment() error {
-	var err error
-	envFilePath := os.Getenv("ENV_FILE")
+	if os.Getenv("SERVICEBUS_CONNECTION_STRING") == "" {
+		var err error
+		envFilePath := os.Getenv("ENV_FILE")
 
-	if envFilePath == "" {
-		// assume same directory
-		err = godotenv.Load()
-	} else {
-		err = godotenv.Load(envFilePath)
-	}
+		if envFilePath == "" {
+			// assume same directory
+			err = godotenv.Load()
+		} else {
+			err = godotenv.Load(envFilePath)
+		}
 
-	if err != nil {
-		return fmt.Errorf("failed to load .env file from path '%s': %s", envFilePath, err.Error())
+		if err != nil {
+			return fmt.Errorf("failed to load .env file from path '%s': %s", envFilePath, err.Error())
+		}
 	}
 
 	return nil
