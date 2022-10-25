@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/url"
 	"runtime"
 	"sync"
 	"time"
@@ -189,7 +190,44 @@ func (ns *Namespace) newClientImpl(ctx context.Context) (amqpwrap.AMQPClient, er
 		return &amqpwrap.AMQPClientWrapper{Inner: client}, err
 	}
 
-	client, err := amqp.Dial(ns.getAMQPHostURI(), &connOptions)
+	u, err := url.Parse(ns.getAMQPHostURI())
+
+	if err != nil {
+		return nil, err
+	}
+
+	host, port := u.Hostname(), u.Port()
+
+	if port == "" {
+		port = "5672"
+		if u.Scheme == "amqps" || u.Scheme == "amqp+ssl" {
+			port = "5671"
+		}
+	}
+
+	addr := net.JoinHostPort(host, port)
+
+	if connOptions.TLSConfig != nil {
+		connOptions.TLSConfig = connOptions.TLSConfig.Clone()
+		connOptions.TLSConfig.ServerName = host
+	} else {
+		connOptions.TLSConfig = &tls.Config{ServerName: host}
+	}
+
+	connOptions.HostName = host
+
+	tcpConn, err := tls.Dial("tcp", addr, connOptions.TLSConfig)
+
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := amqp.New(tcpConn, &connOptions)
+
+	// if client != nil {
+	// 	client, err = amqp.Dial(ns.getAMQPHostURI(), &connOptions)
+	// }
+
 	return &amqpwrap.AMQPClientWrapper{Inner: client}, err
 }
 
