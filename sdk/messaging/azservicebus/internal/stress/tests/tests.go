@@ -34,6 +34,7 @@ func Run(remainingArgs []string) {
 	allTests := map[string]func(args []string){
 		"constantDetach":           ConstantDetachment,
 		"constantDetachmentSender": ConstantDetachmentSender,
+		"continousSessions":        ContinuousSessions,
 		"finitePeeks":              FinitePeeks,
 		"finiteSendAndReceive":     FiniteSendAndReceiveTest,
 		"idleFastReconnect":        IdleFastReconnect,
