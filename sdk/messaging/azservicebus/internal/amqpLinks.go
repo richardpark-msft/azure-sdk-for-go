@@ -479,8 +479,6 @@ func (l *AMQPLinksImpl) closeWithoutLocking(ctx context.Context, permanent bool)
 		}
 	}()
 
-	var messages []string
-
 	if l.cancelAuthRefreshLink != nil {
 		l.cancelAuthRefreshLink()
 		l.cancelAuthRefreshLink = nil
@@ -491,32 +489,45 @@ func (l *AMQPLinksImpl) closeWithoutLocking(ctx context.Context, permanent bool)
 		l.cancelAuthRefreshMgmtLink = nil
 	}
 
-	if l.Sender != nil {
-		if err := l.Sender.Close(ctx); err != nil {
-			messages = append(messages, fmt.Sprintf("amqp sender close error: %s", err.Error()))
+	closeables := []struct {
+		name   string
+		entity interface {
+			Close(ctx context.Context) error
 		}
-		l.Sender = nil
+		clear func()
+	}{
+		{name: "sender", entity: l.Sender},
+		{name: "receiver", entity: l.Receiver},
+		{name: "session", entity: l.session},
+		{name: "rpc", entity: l.RPCLink},
 	}
 
-	if l.Receiver != nil {
-		if err := l.Receiver.Close(ctx); err != nil {
-			messages = append(messages, fmt.Sprintf("amqp receiver close error: %s", err.Error()))
-		}
-		l.Receiver = nil
-	}
+	l.Sender = nil
+	l.Receiver = nil
+	l.session = nil
+	l.RPCLink = nil
 
-	if l.session != nil {
-		if err := l.session.Close(ctx); err != nil {
-			messages = append(messages, fmt.Sprintf("amqp session close error: %s", err.Error()))
-		}
-		l.session = nil
-	}
+	ctx, cancel := context.WithTimeout(ctx, defaultCloseTimeout)
+	defer cancel()
 
-	if l.RPCLink != nil {
-		if err := l.RPCLink.Close(ctx); err != nil {
-			messages = append(messages, fmt.Sprintf("$management link close error: %s", err.Error()))
+	var messages []string
+
+	for _, c := range closeables {
+		if err := c.entity.Close(ctx); err != nil {
+			if IsCancelError(err) {
+				log.Writef(exported.EventConn, "Failed trying to clean up links, connection will need to be reset")
+
+				// an incomplete close should result in a connection reset as the recovery - we can't
+				// guarantee consistent state and we don't want to end up reusing channels or handles
+				// that are not actually active.
+				//
+				// Also, since we're going to reset the connection we don't need to bother closing any
+				// of the other enties here.
+				return errCloseTimedOut
+			}
+
+			messages = append(messages, fmt.Sprintf("amqp %s close error: %s", c.name, err.Error()))
 		}
-		l.RPCLink = nil
 	}
 
 	if len(messages) > 0 {
@@ -525,3 +536,5 @@ func (l *AMQPLinksImpl) closeWithoutLocking(ctx context.Context, permanent bool)
 
 	return nil
 }
+
+var errCloseTimedOut = errors.New("entity close timed out, connection will need to be reset")

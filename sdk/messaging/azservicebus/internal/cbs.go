@@ -5,6 +5,7 @@ package internal
 
 import (
 	"context"
+	"time"
 
 	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
@@ -23,7 +24,7 @@ const (
 )
 
 // NegotiateClaim attempts to put a token to the $cbs management endpoint to negotiate auth for the given audience
-func NegotiateClaim(ctx context.Context, audience string, conn amqpwrap.AMQPClient, provider auth.TokenProvider) error {
+func NegotiateClaim(ctx context.Context, audience string, conn amqpwrap.AMQPClient, provider auth.TokenProvider) (err error) {
 	link, err := NewRPCLink(ctx, RPCLinkArgs{
 		Client:   conn,
 		Address:  cbsAddress,
@@ -35,7 +36,17 @@ func NegotiateClaim(ctx context.Context, audience string, conn amqpwrap.AMQPClie
 	}
 
 	defer func() {
-		if err := link.Close(ctx); err != nil {
+		ctx, cancel := context.WithTimeout(ctx, defaultCloseTimeout)
+		err := link.Close(ctx)
+		cancel()
+
+		if err != nil {
+			// if we cancel here we need to change the error return to be one that indicates the connection
+			// needs to reset.
+			if IsCancelError(err) {
+				err = errCloseTimedOut
+			}
+
 			azlog.Writef(exported.EventAuth, "Failed closing claim link: %s", err.Error())
 		}
 	}()
@@ -63,3 +74,5 @@ func NegotiateClaim(ctx context.Context, audience string, conn amqpwrap.AMQPClie
 
 	return nil
 }
+
+const defaultCloseTimeout = time.Minute

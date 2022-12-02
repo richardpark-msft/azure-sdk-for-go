@@ -901,6 +901,13 @@ func (l *link) muxHandleFrame(fr frames.FrameBody) error {
 // is closed.
 func (l *link) Close(ctx context.Context) error {
 	l.closeOnce.Do(func() { close(l.close) })
+
+	// RJP: so thinking about possiblities, if we close and cancel does
+	// the detach process still attempt to go? It doesn't look like we can actually stop it.
+	// So the link won't be active here and we won't free anything up yet. That might actually be okay.
+
+	// But can it come along _later_ and mess us up? It really seems
+
 	select {
 	case <-l.Detached:
 		// mux exited

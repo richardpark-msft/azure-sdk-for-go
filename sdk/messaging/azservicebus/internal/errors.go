@@ -169,6 +169,12 @@ func GetRecoveryKind(err error) RecoveryKind {
 		return RecoveryKindFatal
 	}
 
+	// when a close fails for a link or session it's possible that the connection is
+	// no longer good, or that we've become inonsistent with the remote service.
+	if errors.Is(err, errCloseTimedOut) {
+		return RecoveryKindConn
+	}
+
 	var netErr net.Error
 
 	// these are errors that can flow from the go-amqp connection to
