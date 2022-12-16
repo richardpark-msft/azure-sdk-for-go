@@ -7,6 +7,8 @@ package amqpwrap
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/go-amqp"
 )
@@ -92,7 +94,18 @@ type AMQPSessionWrapper struct {
 }
 
 func (w *AMQPSessionWrapper) Close(ctx context.Context) error {
-	return w.Inner.Close(ctx)
+	if err := w.Inner.Close(ctx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			// we've had issues where, when the closes start timing out
+			// that it indicates the AMQP connection is faulty and should
+			// be reset.
+			return ErrConnMustBeReset
+		}
+
+		return err
+	}
+
+	return nil
 }
 
 func (w *AMQPSessionWrapper) NewReceiver(ctx context.Context, source string, opts *amqp.ReceiverOptions) (AMQPReceiverCloser, error) {
@@ -106,7 +119,9 @@ func (w *AMQPSessionWrapper) NewReceiver(ctx context.Context, source string, opt
 }
 
 func (w *AMQPSessionWrapper) NewSender(ctx context.Context, target string, opts *amqp.SenderOptions) (AMQPSenderCloser, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultCloseTimeout)
 	sender, err := w.Inner.NewSender(ctx, target, opts)
+	defer cancel()
 
 	if err != nil {
 		return nil, err
@@ -182,5 +197,23 @@ func (rw *AMQPReceiverWrapper) LinkSourceFilterValue(name string) interface{} {
 }
 
 func (rw *AMQPReceiverWrapper) Close(ctx context.Context) error {
-	return rw.inner.Close(ctx)
+	ctx, cancel := context.WithTimeout(ctx, defaultCloseTimeout)
+	defer cancel()
+
+	if err := rw.inner.Close(ctx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			// we've had issues where, when the closes start timing out
+			// that it indicates the AMQP connection is faulty and should
+			// be reset.
+			return ErrConnMustBeReset
+		}
+
+		return err
+	}
+
+	return nil
 }
+
+const defaultCloseTimeout = time.Minute
+
+var ErrConnMustBeReset = errors.New("connection invalid, must be reset")
