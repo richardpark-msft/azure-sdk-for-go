@@ -17,9 +17,9 @@ import (
 )
 
 type LinksWithID struct {
-	Sender   AMQPSender
-	Receiver AMQPReceiver
-	RPC      RPCLink
+	Sender   amqpwrap.AMQPSender
+	Receiver amqpwrap.AMQPReceiver
+	RPC      amqpwrap.RPCLink
 	ID       LinkID
 }
 
@@ -82,15 +82,15 @@ type AMQPLinksImpl struct {
 	mu sync.RWMutex
 
 	// RPCLink lets you interact with the $management link for your entity.
-	RPCLink RPCLink
+	RPCLink amqpwrap.RPCLink
 
 	// the AMQP session for either the 'sender' or 'receiver' link
 	session amqpwrap.AMQPSession
 
 	// these are populated by your `createLinkFunc` when you construct
 	// the amqpLinks
-	Sender   AMQPSenderCloser
-	Receiver AMQPReceiverCloser
+	Sender   amqpwrap.AMQPSenderCloser
+	Receiver amqpwrap.AMQPReceiverCloser
 
 	// whether this links set has been closed permanently (via Close)
 	// Recover() does not affect this value.
@@ -104,7 +104,7 @@ type AMQPLinksImpl struct {
 
 // CreateLinkFunc creates the links, using the given session. Typically you'll only create either an
 // *amqp.Sender or a *amqp.Receiver. AMQPLinks handles it either way.
-type CreateLinkFunc func(ctx context.Context, session amqpwrap.AMQPSession) (AMQPSenderCloser, AMQPReceiverCloser, error)
+type CreateLinkFunc func(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error)
 
 type NewAMQPLinksArgs struct {
 	NS                  NamespaceForAMQPLinks

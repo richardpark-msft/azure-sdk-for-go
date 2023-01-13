@@ -117,7 +117,7 @@ type newReceiverArgs struct {
 	entity              entity
 	cleanupOnClose      func()
 	getRecoveryKindFunc func(err error) internal.RecoveryKind
-	newLinkFn           func(ctx context.Context, session amqpwrap.AMQPSession) (internal.AMQPSenderCloser, internal.AMQPReceiverCloser, error)
+	newLinkFn           func(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error)
 	retryOptions        RetryOptions
 }
 
@@ -169,7 +169,7 @@ func newReceiver(args newReceiverArgs, options *ReceiverOptions) (*Receiver, err
 	return receiver, nil
 }
 
-func (r *Receiver) newReceiverLink(ctx context.Context, session amqpwrap.AMQPSession) (internal.AMQPSenderCloser, internal.AMQPReceiverCloser, error) {
+func (r *Receiver) newReceiverLink(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error) {
 	linkOptions := createLinkOptions(r.receiveMode)
 	link, err := session.NewReceiver(ctx, r.entityPath, linkOptions)
 	return nil, link, err

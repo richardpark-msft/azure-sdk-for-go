@@ -152,10 +152,10 @@ func (mr *MockNamespaceForAMQPLinksMockRecorder) NewAMQPSession(ctx interface{})
 }
 
 // NewRPCLink mocks base method.
-func (m *MockNamespaceForAMQPLinks) NewRPCLink(ctx context.Context, managementPath string) (internal.RPCLink, error) {
+func (m *MockNamespaceForAMQPLinks) NewRPCLink(ctx context.Context, managementPath string) (amqpwrap.RPCLink, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewRPCLink", ctx, managementPath)
-	ret0, _ := ret[0].(internal.RPCLink)
+	ret0, _ := ret[0].(amqpwrap.RPCLink)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

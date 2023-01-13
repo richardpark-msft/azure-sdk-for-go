@@ -72,7 +72,7 @@ type NamespaceWithNewAMQPLinks interface {
 type NamespaceForAMQPLinks interface {
 	NegotiateClaim(ctx context.Context, entityPath string) (context.CancelFunc, <-chan struct{}, error)
 	NewAMQPSession(ctx context.Context) (amqpwrap.AMQPSession, uint64, error)
-	NewRPCLink(ctx context.Context, managementPath string) (RPCLink, error)
+	NewRPCLink(ctx context.Context, managementPath string) (amqpwrap.RPCLink, error)
 	GetEntityAudience(entityPath string) string
 	Recover(ctx context.Context, clientRevision uint64) (bool, error)
 	Close(ctx context.Context, permanently bool) error
@@ -211,7 +211,7 @@ func (ns *Namespace) NewAMQPSession(ctx context.Context) (amqpwrap.AMQPSession, 
 }
 
 // NewRPCLink creates a new amqp-common *rpc.Link with the internally cached *amqp.Client.
-func (ns *Namespace) NewRPCLink(ctx context.Context, managementPath string) (RPCLink, error) {
+func (ns *Namespace) NewRPCLink(ctx context.Context, managementPath string) (amqpwrap.RPCLink, error) {
 	client, _, err := ns.GetAMQPClientImpl(ctx)
 
 	if err != nil {

@@ -621,3 +621,69 @@ func (mr *MockAMQPClientMockRecorder) NewSession(ctx, opts interface{}) *gomock.
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewSession", reflect.TypeOf((*MockAMQPClient)(nil).NewSession), ctx, opts)
 }
+
+// MockRPCLink is a mock of RPCLink interface.
+type MockRPCLink struct {
+	ctrl     *gomock.Controller
+	recorder *MockRPCLinkMockRecorder
+}
+
+// MockRPCLinkMockRecorder is the mock recorder for MockRPCLink.
+type MockRPCLinkMockRecorder struct {
+	mock *MockRPCLink
+}
+
+// NewMockRPCLink creates a new mock instance.
+func NewMockRPCLink(ctrl *gomock.Controller) *MockRPCLink {
+	mock := &MockRPCLink{ctrl: ctrl}
+	mock.recorder = &MockRPCLinkMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRPCLink) EXPECT() *MockRPCLinkMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockRPCLink) Close(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockRPCLinkMockRecorder) Close(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockRPCLink)(nil).Close), ctx)
+}
+
+// LinkName mocks base method.
+func (m *MockRPCLink) LinkName() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LinkName")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// LinkName indicates an expected call of LinkName.
+func (mr *MockRPCLinkMockRecorder) LinkName() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LinkName", reflect.TypeOf((*MockRPCLink)(nil).LinkName))
+}
+
+// RPC mocks base method.
+func (m *MockRPCLink) RPC(ctx context.Context, msg *amqp.Message) (*amqpwrap.RPCResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RPC", ctx, msg)
+	ret0, _ := ret[0].(*amqpwrap.RPCResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RPC indicates an expected call of RPC.
+func (mr *MockRPCLinkMockRecorder) RPC(ctx, msg interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RPC", reflect.TypeOf((*MockRPCLink)(nil).RPC), ctx, msg)
+}

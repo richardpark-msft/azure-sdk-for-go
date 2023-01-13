@@ -29,7 +29,7 @@ type Client struct {
 	linkCounter uint64
 
 	linksMu   *sync.Mutex
-	links     map[uint64]internal.Closeable
+	links     map[uint64]closeable
 	creds     clientCreds
 	namespace interface {
 		// used internally by `Client`
@@ -124,7 +124,7 @@ func newClientImpl(creds clientCreds, options *ClientOptions) (*Client, error) {
 	client := &Client{
 		linksMu: &sync.Mutex{},
 		creds:   creds,
-		links:   map[uint64]internal.Closeable{},
+		links:   map[uint64]closeable{},
 	}
 
 	var err error
@@ -303,7 +303,7 @@ func (client *Client) AcceptNextSessionForSubscription(ctx context.Context, topi
 // Close closes the current connection Service Bus as well as any Senders or Receivers created
 // using this client.
 func (client *Client) Close(ctx context.Context) error {
-	var links []internal.Closeable
+	var links []closeable
 
 	client.linksMu.Lock()
 
@@ -347,7 +347,7 @@ func (client *Client) acceptNextSessionForEntity(ctx context.Context, entity ent
 	return sessionReceiver, nil
 }
 
-func (client *Client) addCloseable(id uint64, closeable internal.Closeable) {
+func (client *Client) addCloseable(id uint64, closeable closeable) {
 	client.linksMu.Lock()
 	client.links[id] = closeable
 	client.linksMu.Unlock()
@@ -361,4 +361,8 @@ func (client *Client) getCleanupForCloseable() (uint64, func()) {
 		delete(client.links, id)
 		client.linksMu.Unlock()
 	}
+}
+
+type closeable interface {
+	Close(ctx context.Context) error
 }

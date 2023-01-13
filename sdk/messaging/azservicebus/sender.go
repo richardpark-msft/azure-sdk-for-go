@@ -174,7 +174,7 @@ func (s *Sender) sendMessage(ctx context.Context, message amqpCompatibleMessage)
 	return internal.TransformError(err)
 }
 
-func (sender *Sender) createSenderLink(ctx context.Context, session amqpwrap.AMQPSession) (internal.AMQPSenderCloser, internal.AMQPReceiverCloser, error) {
+func (sender *Sender) createSenderLink(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error) {
 	amqpSender, err := session.NewSender(
 		ctx,
 		sender.queueOrTopic,
