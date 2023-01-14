@@ -474,3 +474,12 @@ func NewMockNamespace(t *testing.T, ctrl *gomock.Controller, args MockNamespaceA
 
 	return ns
 }
+
+func adsfasdfsadf handleCBSTraffic() {
+	
+
+}
+
+func adsfasdfsadf handleMgmtTraffic() {
+
+}
