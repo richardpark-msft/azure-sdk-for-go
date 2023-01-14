@@ -52,7 +52,7 @@ func toReceiverOptions(sropts *SessionReceiverOptions) *ReceiverOptions {
 
 type newSessionReceiverArgs struct {
 	sessionID         *string
-	ns                internal.NamespaceWithNewAMQPLinks
+	ns                internal.NamespaceForAMQPLinks
 	entity            entity
 	cleanupOnClose    func()
 	retryOptions      RetryOptions

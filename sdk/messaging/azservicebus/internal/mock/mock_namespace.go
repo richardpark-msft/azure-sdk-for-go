@@ -12,61 +12,9 @@ import (
 	context "context"
 	reflect "reflect"
 
-	internal "github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	amqpwrap "github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
 	gomock "github.com/golang/mock/gomock"
 )
-
-// MockNamespaceWithNewAMQPLinks is a mock of NamespaceWithNewAMQPLinks interface.
-type MockNamespaceWithNewAMQPLinks struct {
-	ctrl     *gomock.Controller
-	recorder *MockNamespaceWithNewAMQPLinksMockRecorder
-}
-
-// MockNamespaceWithNewAMQPLinksMockRecorder is the mock recorder for MockNamespaceWithNewAMQPLinks.
-type MockNamespaceWithNewAMQPLinksMockRecorder struct {
-	mock *MockNamespaceWithNewAMQPLinks
-}
-
-// NewMockNamespaceWithNewAMQPLinks creates a new mock instance.
-func NewMockNamespaceWithNewAMQPLinks(ctrl *gomock.Controller) *MockNamespaceWithNewAMQPLinks {
-	mock := &MockNamespaceWithNewAMQPLinks{ctrl: ctrl}
-	mock.recorder = &MockNamespaceWithNewAMQPLinksMockRecorder{mock}
-	return mock
-}
-
-// EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockNamespaceWithNewAMQPLinks) EXPECT() *MockNamespaceWithNewAMQPLinksMockRecorder {
-	return m.recorder
-}
-
-// Check mocks base method.
-func (m *MockNamespaceWithNewAMQPLinks) Check() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Check")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Check indicates an expected call of Check.
-func (mr *MockNamespaceWithNewAMQPLinksMockRecorder) Check() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Check", reflect.TypeOf((*MockNamespaceWithNewAMQPLinks)(nil).Check))
-}
-
-// NewAMQPLinks mocks base method.
-func (m *MockNamespaceWithNewAMQPLinks) NewAMQPLinks(entityPath string, createLinkFunc internal.CreateLinkFunc, getRecoveryKindFunc func(error) internal.RecoveryKind) internal.AMQPLinks {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewAMQPLinks", entityPath, createLinkFunc, getRecoveryKindFunc)
-	ret0, _ := ret[0].(internal.AMQPLinks)
-	return ret0
-}
-
-// NewAMQPLinks indicates an expected call of NewAMQPLinks.
-func (mr *MockNamespaceWithNewAMQPLinksMockRecorder) NewAMQPLinks(entityPath, createLinkFunc, getRecoveryKindFunc interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewAMQPLinks", reflect.TypeOf((*MockNamespaceWithNewAMQPLinks)(nil).NewAMQPLinks), entityPath, createLinkFunc, getRecoveryKindFunc)
-}
 
 // MockNamespaceForAMQPLinks is a mock of NamespaceForAMQPLinks interface.
 type MockNamespaceForAMQPLinks struct {
@@ -89,6 +37,20 @@ func NewMockNamespaceForAMQPLinks(ctrl *gomock.Controller) *MockNamespaceForAMQP
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockNamespaceForAMQPLinks) EXPECT() *MockNamespaceForAMQPLinksMockRecorder {
 	return m.recorder
+}
+
+// Check mocks base method.
+func (m *MockNamespaceForAMQPLinks) Check() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Check")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Check indicates an expected call of Check.
+func (mr *MockNamespaceForAMQPLinksMockRecorder) Check() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Check", reflect.TypeOf((*MockNamespaceForAMQPLinks)(nil).Check))
 }
 
 // Close mocks base method.

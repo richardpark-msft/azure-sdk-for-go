@@ -6,12 +6,21 @@ package internal
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/exported"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/go-amqp"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/mock"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
+	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/require"
 )
 
 type FakeNS struct {
@@ -275,6 +284,193 @@ func (ns *FakeNS) Check() error {
 	return nil
 }
 
-func (ns *FakeNS) NewAMQPLinks(entityPath string, createLinkFunc CreateLinkFunc, getRecoveryKindFunc func(err error) RecoveryKind) AMQPLinks {
-	return ns.AMQPLinks
+type MockReceiverArgs struct {
+	Err        error
+	Msgs       []*amqp.Message
+	Prefetched []*amqp.Message
+}
+
+func NewMockReceiver(ctrl *gomock.Controller, args MockReceiverArgs) *mock.MockAMQPReceiverCloser {
+	receiver := mock.NewMockAMQPReceiverCloser(ctrl)
+
+	var credits uint32
+	linkName := fmt.Sprintf("link-%d", time.Now().UnixNano())
+
+	receiver.EXPECT().LinkName().Return(linkName).AnyTimes()
+	receiver.EXPECT().Credits().DoAndReturn(func() uint32 { return credits })
+	receiver.EXPECT().IssueCredit(gomock.Any()).DoAndReturn(func(credit uint32) error {
+		credits += credit
+		return nil
+	})
+
+	ch := make(chan *amqp.Message, len(args.Msgs))
+
+	for _, m := range args.Msgs {
+		ch <- m
+	}
+
+	receiver.EXPECT().Receive(gomock.Any()).DoAndReturn(func(ctx context.Context) (*amqp.Message, error) {
+		if len(ch) == 0 {
+			if args.Err != nil {
+				return nil, args.Err
+			}
+
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case msg := <-ch:
+			credits--
+			return msg, nil
+		}
+	}).AnyTimes()
+
+	receiver.EXPECT().Prefetched().DoAndReturn(func() *amqp.Message {
+		if len(args.Prefetched) == 0 {
+			return nil
+		}
+
+		m := args.Prefetched[0]
+		args.Prefetched = args.Prefetched[1:]
+		return m
+	}).AnyTimes()
+
+	return receiver
+}
+
+type MockNamespaceArgs struct {
+	UpdateSessionMock  func(m *mock.MockAMQPSession) error
+	UpdateReceiverMock func(m *mock.MockAMQPReceiverCloser, source string, opts *amqp.ReceiverOptions) error
+	UpdateSenderMock   func(m *mock.MockAMQPSenderCloser, target string, opts *amqp.SenderOptions) error
+}
+
+func NewMockNamespace(t *testing.T, ctrl *gomock.Controller, args MockNamespaceArgs) *Namespace {
+	tc := mock.NewMockTokenCredential(ctrl)
+
+	var tokenCounter int64
+
+	tc.EXPECT().GetToken(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, options policy.TokenRequestOptions) (azcore.AccessToken, error) {
+		tc := atomic.AddInt64(&tokenCounter, 1)
+
+		return azcore.AccessToken{
+			Token:     fmt.Sprintf("Token-%d", tc),
+			ExpiresOn: time.Now().Add(10 * time.Minute),
+		}, nil
+	}).AnyTimes()
+
+	ns, err := NewNamespace(NamespaceWithTokenCredential("example.servicebus.windows.net", tc))
+	require.NoError(t, err)
+
+	var connCounter int64
+	var linkCounter int64
+
+	m := sync.Map{}
+
+	ns.newClientFn = func(ctx context.Context) (amqpwrap.AMQPClient, error) {
+		conn := mock.NewMockAMQPClient(ctrl)
+
+		atomic.AddInt64(&connCounter, 1)
+
+		conn.EXPECT().NewSession(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, opts *amqp.SessionOptions) (amqpwrap.AMQPSession, error) {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+
+			sess := mock.NewMockAMQPSession(ctrl)
+
+			if args.UpdateSessionMock != nil {
+				if err := args.UpdateSessionMock(sess); err != nil {
+					return nil, err
+				}
+			}
+
+			sess.EXPECT().NewReceiver(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, source string, opts *amqp.ReceiverOptions) (amqpwrap.AMQPReceiverCloser, error) {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				default:
+				}
+
+				rcvr := mock.NewMockAMQPReceiverCloser(ctrl)
+
+				conn := atomic.LoadInt64(&connCounter)
+				val := atomic.AddInt64(&linkCounter, 1)
+				rcvr.EXPECT().LinkName().Return(fmt.Sprintf("c:%d-l:%d-rcvr", conn, val)).AnyTimes()
+
+				if args.UpdateReceiverMock != nil {
+					if err := args.UpdateReceiverMock(rcvr, source, opts); err != nil {
+						return nil, err
+					}
+				}
+
+				credits := 0
+
+				// TODO: this is only going to work for queues. For topics/subscriptions
+				// we'll have to do a little more matching.
+				ch, _ := m.LoadOrStore(source, make(chan *amqp.Message, 1000))
+
+				rcvr.EXPECT().Receive(gomock.Any()).DoAndReturn(func(ctx context.Context) (*amqp.Message, error) {
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					case msg := <-ch.(chan *amqp.Message):
+						// TODO: it might be interesting to think about only returning if they have credits
+						credits--
+
+						log.Writef("Mock", "Received %#v from %s\n", msg, source)
+						return msg, nil
+					}
+				}).AnyTimes()
+
+				return rcvr, nil
+			}).AnyTimes()
+
+			sess.EXPECT().NewSender(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, target string, opts *amqp.SenderOptions) (amqpwrap.AMQPSenderCloser, error) {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				default:
+				}
+
+				sender := mock.NewMockAMQPSenderCloser(ctrl)
+
+				conn := atomic.LoadInt64(&connCounter)
+				val := atomic.AddInt64(&linkCounter, 1)
+				sender.EXPECT().LinkName().Return(fmt.Sprintf("c:%d-l:%d-sender", conn, val)).AnyTimes()
+
+				if args.UpdateSenderMock != nil {
+					if err := args.UpdateSenderMock(sender, target, opts); err != nil {
+						return nil, err
+					}
+				}
+
+				ch, _ := m.LoadOrStore(target, make(chan *amqp.Message, 1000))
+
+				sender.EXPECT().Send(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, msg *amqp.Message) error {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					default:
+						log.Writef("Mock", "Sent %#v to %s\n", msg, target)
+
+						ch.(chan *amqp.Message) <- msg
+						return nil
+					}
+				}).AnyTimes()
+
+				return sender, nil
+			}).AnyTimes()
+
+			return sess, nil
+		}).AnyTimes()
+
+		return conn, nil
+	}
+
+	return ns
 }

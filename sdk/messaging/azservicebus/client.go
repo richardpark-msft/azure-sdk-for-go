@@ -28,15 +28,10 @@ type Client struct {
 	//   PR: https://github.com/Azure/azure-sdk-for-go/pull/16847
 	linkCounter uint64
 
-	linksMu   *sync.Mutex
-	links     map[uint64]closeable
-	creds     clientCreds
-	namespace interface {
-		// used internally by `Client`
-		internal.NamespaceWithNewAMQPLinks
-		// for child clients
-		internal.NamespaceForAMQPLinks
-	}
+	linksMu      *sync.Mutex
+	links        map[uint64]closeable
+	creds        clientCreds
+	namespace    internal.NamespaceForAMQPLinks
 	retryOptions RetryOptions
 
 	// acceptNextTimeout controls how long the session accept can take before

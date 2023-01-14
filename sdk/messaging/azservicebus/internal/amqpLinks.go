@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
@@ -100,6 +101,10 @@ type AMQPLinksImpl struct {
 	cancelAuthRefreshMgmtLink func()
 
 	ns NamespaceForAMQPLinks
+
+	// contextWithTimeoutFn is just an alias for context.WithTimeout
+	// it's here so we can stub it out for tests.
+	contextWithTimeoutFn func(parent context.Context, duration time.Duration) (context.Context, context.CancelFunc)
 }
 
 // CreateLinkFunc creates the links, using the given session. Typically you'll only create either an
@@ -117,13 +122,14 @@ type NewAMQPLinksArgs struct {
 // management link for a specific entity path.
 func NewAMQPLinks(args NewAMQPLinksArgs) AMQPLinks {
 	l := &AMQPLinksImpl{
-		entityPath:          args.EntityPath,
-		managementPath:      fmt.Sprintf("%s/$management", args.EntityPath),
-		audience:            args.NS.GetEntityAudience(args.EntityPath),
-		createLink:          args.CreateLinkFunc,
-		closedPermanently:   false,
-		getRecoveryKindFunc: args.GetRecoveryKindFunc,
-		ns:                  args.NS,
+		entityPath:           args.EntityPath,
+		managementPath:       fmt.Sprintf("%s/$management", args.EntityPath),
+		audience:             args.NS.GetEntityAudience(args.EntityPath),
+		createLink:           args.CreateLinkFunc,
+		closedPermanently:    false,
+		getRecoveryKindFunc:  args.GetRecoveryKindFunc,
+		ns:                   args.NS,
+		contextWithTimeoutFn: context.WithTimeout,
 	}
 
 	return l

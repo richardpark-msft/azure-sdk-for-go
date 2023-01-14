@@ -62,12 +62,6 @@ type (
 	NamespaceOption func(h *Namespace) error
 )
 
-// NamespaceWithNewAMQPLinks is the Namespace surface for consumers of AMQPLinks.
-type NamespaceWithNewAMQPLinks interface {
-	NewAMQPLinks(entityPath string, createLinkFunc CreateLinkFunc, getRecoveryKindFunc func(err error) RecoveryKind) AMQPLinks
-	Check() error
-}
-
 // NamespaceForAMQPLinks is the Namespace surface needed for the internals of AMQPLinks.
 type NamespaceForAMQPLinks interface {
 	NegotiateClaim(ctx context.Context, entityPath string) (context.CancelFunc, <-chan struct{}, error)
@@ -75,6 +69,7 @@ type NamespaceForAMQPLinks interface {
 	NewRPCLink(ctx context.Context, managementPath string) (amqpwrap.RPCLink, error)
 	GetEntityAudience(entityPath string) string
 	Recover(ctx context.Context, clientRevision uint64) (bool, error)
+	Check() error
 	Close(ctx context.Context, permanently bool) error
 }
 
@@ -222,17 +217,6 @@ func (ns *Namespace) NewRPCLink(ctx context.Context, managementPath string) (amq
 		Client:   client,
 		Address:  managementPath,
 		LogEvent: exported.EventReceiver,
-	})
-}
-
-// NewAMQPLinks creates an AMQPLinks struct, which groups together the commonly needed links for
-// working with Service Bus.
-func (ns *Namespace) NewAMQPLinks(entityPath string, createLinkFunc CreateLinkFunc, getRecoveryKindFunc func(err error) RecoveryKind) AMQPLinks {
-	return NewAMQPLinks(NewAMQPLinksArgs{
-		NS:                  ns,
-		EntityPath:          entityPath,
-		CreateLinkFunc:      createLinkFunc,
-		GetRecoveryKindFunc: getRecoveryKindFunc,
 	})
 }
 

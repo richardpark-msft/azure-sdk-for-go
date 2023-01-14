@@ -187,6 +187,7 @@ func Test_ServiceBusError_NoRecoveryNeeded(t *testing.T) {
 
 func Test_ServiceBusError_ConnectionRecoveryNeeded(t *testing.T) {
 	var connErrors = []error{
+		errConnResetNeeded,
 		&amqp.Error{Condition: amqp.ErrorConnectionForced},
 		&amqp.Error{Condition: amqp.ErrorInternalError},
 		&amqp.ConnectionError{},

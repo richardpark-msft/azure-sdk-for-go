@@ -28,6 +28,8 @@ func NewErrNonRetriable(message string) error {
 
 func (e errNonRetriable) Error() string { return e.Message }
 
+var errConnResetNeeded = errors.New("connection must be reset, link/connection state may be inconsistent")
+
 // RecoveryKind dictates what kind of recovery is possible. Used with
 // GetRecoveryKind().
 type RecoveryKind string
@@ -171,6 +173,10 @@ func GetRecoveryKind(err error) RecoveryKind {
 	}
 
 	var netErr net.Error
+
+	if errors.Is(err, errConnResetNeeded) {
+		return RecoveryKindConn
+	}
 
 	// these are errors that can flow from the go-amqp connection to
 	// us. There's work underway to improve this but for now we can handle

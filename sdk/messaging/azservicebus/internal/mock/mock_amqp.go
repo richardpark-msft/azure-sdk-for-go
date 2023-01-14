@@ -659,20 +659,6 @@ func (mr *MockRPCLinkMockRecorder) Close(ctx interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockRPCLink)(nil).Close), ctx)
 }
 
-// LinkName mocks base method.
-func (m *MockRPCLink) LinkName() string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LinkName")
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// LinkName indicates an expected call of LinkName.
-func (mr *MockRPCLinkMockRecorder) LinkName() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LinkName", reflect.TypeOf((*MockRPCLink)(nil).LinkName))
-}
-
 // RPC mocks base method.
 func (m *MockRPCLink) RPC(ctx context.Context, msg *amqp.Message) (*amqpwrap.RPCResponse, error) {
 	m.ctrl.T.Helper()

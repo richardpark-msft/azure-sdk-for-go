@@ -191,7 +191,7 @@ func (sender *Sender) createSenderLink(ctx context.Context, session amqpwrap.AMQ
 }
 
 type newSenderArgs struct {
-	ns             internal.NamespaceWithNewAMQPLinks
+	ns             internal.NamespaceForAMQPLinks
 	queueOrTopic   string
 	cleanupOnClose func()
 	retryOptions   RetryOptions
@@ -208,7 +208,15 @@ func newSender(args newSenderArgs) (*Sender, error) {
 		retryOptions:   args.retryOptions,
 	}
 
-	sender.links = args.ns.NewAMQPLinks(args.queueOrTopic, sender.createSenderLink, internal.GetRecoveryKind)
+	// sender.links = args.ns.NewAMQPLinks(args.queueOrTopic, sender.createSenderLink, internal.GetRecoveryKind)
+
+	sender.links = internal.NewAMQPLinks(internal.NewAMQPLinksArgs{
+		NS:                  args.ns,
+		EntityPath:          args.queueOrTopic,
+		CreateLinkFunc:      sender.createSenderLink,
+		GetRecoveryKindFunc: internal.GetRecoveryKind,
+	})
+
 	return sender, nil
 }
 
