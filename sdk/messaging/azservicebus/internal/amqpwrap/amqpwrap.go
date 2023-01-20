@@ -8,6 +8,7 @@ package amqpwrap
 import (
 	"context"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/internal/uuid"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/go-amqp"
 )
 
@@ -60,6 +61,7 @@ type AMQPSession interface {
 }
 
 type AMQPClient interface {
+	Name() string
 	Close() error
 	NewSession(ctx context.Context, opts *amqp.SessionOptions) (AMQPSession, error)
 }
@@ -84,6 +86,24 @@ type RPCResponse struct {
 // return interfaces for AMQPSender and AMQPReceiver from AMQPSession.
 type AMQPClientWrapper struct {
 	Inner *amqp.Client
+	id    string
+}
+
+func NewAMQPClientWrapper(client *amqp.Client) (AMQPClient, error) {
+	uuid, err := uuid.New()
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &AMQPClientWrapper{
+		Inner: client,
+		id:    uuid.String(),
+	}, nil
+}
+
+func (w *AMQPClientWrapper) Name() string {
+	return w.id
 }
 
 func (w *AMQPClientWrapper) Close() error {

@@ -14,34 +14,36 @@ import (
 )
 
 func TestMockQueue(t *testing.T) {
-	mq := emulation.NewQueue()
+	traffic := make(chan emulation.Operation, 1000)
+	mq := emulation.NewQueue("entity", traffic)
 	defer mq.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
 	// no messages exist yet
-	msg, err := mq.Receive(ctx)
+	msg, err := mq.Receive(ctx, "link")
 	require.Nil(t, msg)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	err = mq.Send(context.Background(), &amqp.Message{
 		Value: []byte("first message"),
-	})
+	}, "link")
 	require.NoError(t, err)
 
 	// messages exist, but no credits have been added yet.
 	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	msg, err = mq.Receive(ctx)
+	msg, err = mq.Receive(ctx, "link")
 	require.Nil(t, msg)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	// now issue credit
-	mq.IssueCredit(1)
+	err = mq.IssueCredit(1, "link")
+	require.NoError(t, err)
 
-	msg, err = mq.Receive(context.Background())
+	msg, err = mq.Receive(context.Background(), "link")
 	require.NoError(t, err)
 	require.Equal(t, []byte("first message"), msg.Value)
 
@@ -49,16 +51,18 @@ func TestMockQueue(t *testing.T) {
 	ctx, cancel = context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	msg, err = mq.Receive(ctx)
+	msg, err = mq.Receive(ctx, "link")
 	require.Nil(t, msg)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 
 	// reissue credit
-	mq.IssueCredit(1)
-	err = mq.Send(context.Background(), &amqp.Message{Value: []byte("second message")})
+	err = mq.IssueCredit(1, "link")
 	require.NoError(t, err)
 
-	msg, err = mq.Receive(context.Background())
+	err = mq.Send(context.Background(), &amqp.Message{Value: []byte("second message")}, "link")
+	require.NoError(t, err)
+
+	msg, err = mq.Receive(context.Background(), "link")
 	require.NoError(t, err)
 	require.Equal(t, []byte("second message"), msg.Value)
 }

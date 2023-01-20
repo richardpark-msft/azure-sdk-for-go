@@ -189,6 +189,10 @@ type rpcTesterClient struct {
 	session amqpwrap.AMQPSession
 }
 
+func (c *rpcTesterClient) Name() string {
+	return "rpcTesterClient"
+}
+
 func (c *rpcTesterClient) NewSession(ctx context.Context, opts *amqp.SessionOptions) (amqpwrap.AMQPSession, error) {
 	return c.session, nil
 }

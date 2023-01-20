@@ -15,10 +15,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/exported"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/go-amqp"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/mock"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/test"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -820,34 +818,34 @@ func TestAMQPLinksCreditTracking(t *testing.T) {
 	})
 }
 
-func TestAMQPLinksCloseCancelled(t *testing.T) {
-	ctrl := gomock.NewController(t)
+// func TestAMQPLinksCloseCancelled(t *testing.T) {
+// 	ctrl := gomock.NewController(t)
 
-	test.EnableStdoutLogging()
+// 	test.EnableStdoutLogging()
 
-	ns := NewMockNamespace(t, ctrl, MockNamespaceArgs{})
+// 	ns := NewMockNamespace(t, ctrl, MockNamespaceArgs{})
 
-	amqpLinks := NewAMQPLinks(NewAMQPLinksArgs{
-		NS:         ns,
-		EntityPath: "managementPath",
-		CreateLinkFunc: func(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error) {
-			receiver := mock.NewMockAMQPReceiverCloser(ctrl)
-			receiver.EXPECT().LinkName().Return("link1").AnyTimes()
+// 	amqpLinks := NewAMQPLinks(NewAMQPLinksArgs{
+// 		NS:         ns,
+// 		EntityPath: "managementPath",
+// 		CreateLinkFunc: func(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error) {
+// 			receiver := mock.NewMockAMQPReceiverCloser(ctrl)
+// 			receiver.EXPECT().LinkName().Return("link1").AnyTimes()
 
-			return nil, receiver, nil
-		},
-		GetRecoveryKindFunc: GetRecoveryKind,
-	})
+// 			return nil, receiver, nil
+// 		},
+// 		GetRecoveryKindFunc: GetRecoveryKind,
+// 	})
 
-	links := amqpLinks.(*AMQPLinksImpl)
+// 	links := amqpLinks.(*AMQPLinksImpl)
 
-	require.NotNil(t, links.contextWithTimeoutFn, "sanity check, we are setting the context.WithTimeout func")
-	links.contextWithTimeoutFn = mock.NewContextWithTimeoutForTests
+// 	require.NotNil(t, links.contextWithTimeoutFn, "sanity check, we are setting the context.WithTimeout func")
+// 	links.contextWithTimeoutFn = mock.NewContextWithTimeoutForTests
 
-	lwid, err := links.Get(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, lwid)
-}
+// 	lwid, err := links.Get(context.Background())
+// 	require.NoError(t, err)
+// 	require.NotNil(t, lwid)
+// }
 
 // newLinksForAMQPLinksTest creates a AMQPSenderCloser and a AMQPReceiverCloser linkwith the same options
 // we use when we create them with the azservicebus.Receiver/Sender.

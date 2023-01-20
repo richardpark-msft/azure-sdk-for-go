@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/telemetry"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/auth"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/emulation"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/go-amqp"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sbauth"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/test"
@@ -50,6 +51,36 @@ func TestNamespaceUserAgent(t *testing.T) {
 
 	t.Logf("User agent, with application ID: '%s'", ns.getUserAgent())
 	require.Equal(t, fmt.Sprintf("userApplicationID %s", baseUserAgent), ns.getUserAgent())
+}
+
+func TestNamespaceMock(t *testing.T) {
+	ns, err := NewNamespace(
+		NamespaceWithConnectionString("Endpoint=sb://example.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=DEADBEEF"),
+	)
+	require.NoError(t, err)
+
+	md := emulation.NewMockData(t, nil)
+	ns.newClientFn = md.NewConnection
+
+	created, err := ns.Recover(context.Background(), 0)
+	require.True(t, created)
+	require.NoError(t, err)
+
+	created, err = ns.Recover(context.Background(), 0)
+	require.False(t, created)
+	require.NoError(t, err)
+
+	cancelFunc, done, err := ns.NegotiateClaim(context.Background(), "hello")
+	require.NoError(t, err)
+
+	cancelFunc()
+	<-done
+
+	err = ns.Close(context.Background(), true)
+	require.NoError(t, err)
+
+	ops := md.GetActivity()
+	require.NotEmpty(t, ops)
 }
 
 func TestNamespaceNegotiateClaim(t *testing.T) {
