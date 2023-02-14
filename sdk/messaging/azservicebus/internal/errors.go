@@ -170,6 +170,14 @@ func GetRecoveryKind(err error) RecoveryKind {
 		return RecoveryKindFatal
 	}
 
+	if errors.Is(err, errConnResetNeeded) {
+		return RecoveryKindConn
+	}
+
+	if errors.Is(err, ErrLinkIsIdle) {
+		return RecoveryKindLink
+	}
+
 	var netErr net.Error
 
 	// these are errors that can flow from the go-amqp connection to
@@ -354,3 +362,4 @@ func isLockLostError(err error) bool {
 }
 
 var errConnResetNeeded = errors.New("connection must be reset, link/connection state may be inconsistent")
+var ErrLinkIsIdle = errors.New("link is idle")

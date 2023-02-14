@@ -59,6 +59,7 @@ type Receiver struct {
 	receiving bool
 
 	defaultTimeAfterFirstMsg time.Duration
+	idle                     internal.IdleChecker
 
 	cancelReleaser *atomic.Value
 }
@@ -519,11 +520,23 @@ type fetchMessagesResult struct {
 // Note, if you want to only receive prefetched messages send the parentCtx in
 // pre-cancelled. This will cause us to only flush the prefetch buffer.
 func (r *Receiver) fetchMessages(parentCtx context.Context, receiver amqpwrap.AMQPReceiver, count int, timeAfterFirstMessage time.Duration) fetchMessagesResult {
+	fetchCtx, cancelFetch := r.idle.NewContext(parentCtx)
+	defer cancelFetch()
+
 	// The first receive is a bit special - we activate a short timer after this
 	// so the user doesn't end up in a situation where we're holding onto a bunch
 	// of messages but never return because they never cancelled and we never
 	// received all 'count' number of messages.
-	firstMsg, err := receiver.Receive(parentCtx)
+	firstMsg, err := receiver.Receive(fetchCtx)
+
+	if r.idle.UpdateAndCheck(parentCtx, err) {
+		// our idle timer fired off. drain and return max drain timeout
+		// Another thing we could do here is just close the link now and let it get
+		// recreated on the next call.
+		return fetchMessagesResult{
+			Error: internal.ErrLinkIsIdle,
+		}
+	}
 
 	if err != nil {
 		// drain the prefetch buffer - we're stopping because of a

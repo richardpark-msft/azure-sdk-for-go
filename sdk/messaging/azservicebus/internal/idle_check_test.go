@@ -4,40 +4,20 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIdleCheck(t *testing.T) {
+	start := time.Now()
 	ic := NewIdleChecker(time.Second)
 
-	drainWithTimeout := func() error {}
-	closeIfNeeded := func(err error) {}
+	newCtx, newCancel := ic.NewContext(context.Background())
+	defer newCancel()
 
-	fr := func fakeReceiver(ctx context.Context, fn func(ctx context.Context) error) error {
-		newCtx, newCancel := ic.NewContext(ctx)
-		defer newCancel()
-
-		err := fn(newCtx)
-	
-		if err != nil {
-			if IsCancelError(err) {
-				if ctx.Err() != nil {
-					// user cancelled
-					return err
-				} else {
-					// we cancelled - something's not working properly here.					
-					err := drainWithTimeout()					
-					closeIfNeeded(err)
-					return nil	// let next call recover.
-				}
-			}
-	
-			return err
-		}
-	
-		// we succeeded! we should debounce the timer.
-		ic.Debounce()
-		return nil
-	}	
+	deadline, hasDeadline := newCtx.Deadline()
+	require.True(t, hasDeadline)
+	require.GreaterOrEqual(t, deadline.Sub(start), time.Second)
 }
 
 func blockForOneMinute(ctx context.Context) error {
