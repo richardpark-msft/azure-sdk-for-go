@@ -9,17 +9,11 @@ package azopenai
 import (
 	"context"
 	"log"
-	"os"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-)
-
-var (
-	endpoint = os.Getenv("AOAI_ENDPOINT")
-	apiKey   = os.Getenv("AOAI_API_KEY")
 )
 
 func TestClient_GetChatCompletions(t *testing.T) {
