@@ -23,7 +23,7 @@ import (
 
 func TestClient_GetChatCompletions(t *testing.T) {
 	cred := KeyCredential{APIKey: testVars.apiKey}
-	chatClient, err := NewClientWithKeyCredential(testVars.endpoint, cred, testVars.chatDeploymentID, nil)
+	chatClient, err := NewClientWithKeyCredential(testVars.endpoint, cred, testVars.chatCompletionsDeploymentID, nil)
 	require.NoError(t, err)
 
 	resp, err := chatClient.GetChatCompletions(context.Background(), ChatCompletionsOptions{
@@ -66,15 +66,8 @@ func TestClient_GetChatCompletions(t *testing.T) {
 }
 
 func TestClient_GetCompletions(t *testing.T) {
-	type args struct {
-		ctx          context.Context
-		deploymentID string
-		body         CompletionsOptions
-		options      *ClientGetCompletionsOptions
-	}
 	cred := KeyCredential{APIKey: testVars.apiKey}
-	deploymentID := "text-davinci-003"
-	client, err := NewClientWithKeyCredential(testVars.endpoint, cred, deploymentID, nil)
+	client, err := NewClientWithKeyCredential(testVars.endpoint, cred, testVars.completionsDeploymentID, nil)
 	require.NoError(t, err)
 
 	resp, err := client.GetCompletions(context.Background(), CompletionsOptions{

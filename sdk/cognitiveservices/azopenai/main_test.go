@@ -15,10 +15,11 @@ import (
 )
 
 var testVars struct {
-	endpoint              string
-	apiKey                string
-	embeddingDeploymentID string
-	chatDeploymentID      string
+	endpoint                    string
+	apiKey                      string
+	embeddingDeploymentID       string
+	completionsDeploymentID     string
+	chatCompletionsDeploymentID string
 
 	openAIKey      string
 	openAIEndpoint string
@@ -32,7 +33,8 @@ func TestMain(m *testing.M) {
 	testVars.endpoint = os.Getenv("AOAI_ENDPOINT")
 	testVars.apiKey = os.Getenv("AOAI_API_KEY")
 	testVars.embeddingDeploymentID = os.Getenv("AOAI_EMBEDDING_DEPLOYMENT")
-	testVars.chatDeploymentID = os.Getenv("AOAI_CHAT_DEPLOYMENT")
+	testVars.completionsDeploymentID = os.Getenv("AOAI_COMPLETIONS_DEPLOYMENT")
+	testVars.chatCompletionsDeploymentID = os.Getenv("AOAI_CHAT_COMPLETIONS_DEPLOYMENT")
 
 	// OpenAI parameters - optional. Tests that use them will be skipped if you don't provide a key.
 	testVars.openAIKey = os.Getenv("OPENAI_API_KEY")

@@ -33,7 +33,7 @@ func TestClient_GetEmbeddings(t *testing.T) {
 }
 
 func TestClient_ReplicatePyNoteBookTest(t *testing.T) {
-	chatClient := getTokenCredentialClient(t, testVars.chatDeploymentID)
+	chatClient := getTokenCredentialClient(t, testVars.completionsDeploymentID)
 	//embeddingClient := getTokenCredentialClient(t, testVars.chatDeploymentID)
 
 	// TODO: this is really required, not optional, so it should be renamed.
