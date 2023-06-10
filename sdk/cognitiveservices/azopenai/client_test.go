@@ -8,86 +8,61 @@ package azopenai
 
 import (
 	"context"
-	"log"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/stretchr/testify/require"
 )
 
+// From the docs on the difference between ChatCompletions and Completions:
+//
+// > The difference between these APIs derives mainly from the underlying GPT models that are available in each. The
+// > chat completions API is the interface to our most capable model (gpt-4), and our most cost effective model
+// >  (gpt-3.5-turbo). For reference, gpt-3.5-turbo performs at a similar capability level to text-davinci-003 but
+// > at 10% the price per token! See pricing details here.
+
 func TestClient_GetChatCompletions(t *testing.T) {
-	type args struct {
-		ctx          context.Context
-		deploymentID string
-		body         ChatCompletionsOptions
-		options      *ClientGetChatCompletionsOptions
-	}
 	cred := KeyCredential{APIKey: testVars.apiKey}
 	chatClient, err := NewClientWithKeyCredential(testVars.endpoint, cred, testVars.chatDeploymentID, nil)
-	if err != nil {
-		log.Fatalf("%v", err)
-	}
-	tests := []struct {
-		name    string
-		client  *Client
-		args    args
-		want    ClientGetChatCompletionsResponse
-		wantErr bool
-	}{
-		{
-			name:   "ChatCompletions",
-			client: chatClient,
-			args: args{
-				ctx:          context.TODO(),
-				deploymentID: "gpt-35-turbo",
-				body: ChatCompletionsOptions{
-					Messages: []*ChatMessage{
-						{
-							Role:    to.Ptr(ChatRole("user")),
-							Content: to.Ptr("Count to 100, with a comma between each number and no newlines. E.g., 1, 2, 3, ..."),
-						},
-					},
-					MaxTokens:   to.Ptr(int32(1024)),
-					Temperature: to.Ptr(float32(0.0)),
-				},
-				options: nil,
+	require.NoError(t, err)
+
+	resp, err := chatClient.GetChatCompletions(context.Background(), ChatCompletionsOptions{
+		Messages: []*ChatMessage{
+			{
+				Role:    to.Ptr(ChatRole("user")),
+				Content: to.Ptr("Count to 10, with a comma between each number and no newlines. E.g., 1, 2, 3, ..."),
 			},
-			want: ClientGetChatCompletionsResponse{
-				ChatCompletions: ChatCompletions{
-					Choices: []*ChatChoice{
-						{
-							Message: &ChatChoiceMessage{
-								Role:    to.Ptr(ChatRole("assistant")),
-								Content: to.Ptr("1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100."),
-							},
-							Index:        to.Ptr(int32(0)),
-							FinishReason: to.Ptr(CompletionsFinishReason("stop")),
-						},
+		},
+		MaxTokens:   to.Ptr(int32(1024)),
+		Temperature: to.Ptr(float32(0.0)),
+	}, nil)
+	require.NoError(t, err)
+
+	expected := ClientGetChatCompletionsResponse{
+		ChatCompletions: ChatCompletions{
+			Choices: []*ChatChoice{
+				{
+					Message: &ChatChoiceMessage{
+						Role:    to.Ptr(ChatRole("assistant")),
+						Content: to.Ptr("1, 2, 3, 4, 5, 6, 7, 8, 9, 10."),
 					},
-					Usage: &CompletionsUsage{
-						CompletionTokens: to.Ptr(int32(299)),
-						PromptTokens:     to.Ptr(int32(37)),
-						TotalTokens:      to.Ptr(int32(336)),
-					},
+					Index:        to.Ptr(int32(0)),
+					FinishReason: to.Ptr(CompletionsFinishReason("stop")),
 				},
 			},
-			wantErr: false,
+			Usage: &CompletionsUsage{
+				CompletionTokens: to.Ptr(int32(29)),
+				PromptTokens:     to.Ptr(int32(37)),
+				TotalTokens:      to.Ptr(int32(66)),
+			},
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.client.GetChatCompletions(tt.args.ctx, tt.args.body, tt.args.options)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Client.GetChatCompletions() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			opts := cmpopts.IgnoreFields(ChatCompletions{}, "Created", "ID")
-			if diff := cmp.Diff(tt.want.ChatCompletions, got.ChatCompletions, opts); diff != "" {
-				t.Errorf("Client.GetCompletions(): -want, +got:\n%s", diff)
-			}
-		})
-	}
+
+	// nix the fields that are non-deterministic.
+	resp.Created = nil
+	resp.ID = nil
+
+	require.Equal(t, expected, resp)
 }
 
 func TestClient_GetCompletions(t *testing.T) {
@@ -100,60 +75,35 @@ func TestClient_GetCompletions(t *testing.T) {
 	cred := KeyCredential{APIKey: testVars.apiKey}
 	deploymentID := "text-davinci-003"
 	client, err := NewClientWithKeyCredential(testVars.endpoint, cred, deploymentID, nil)
-	if err != nil {
-		log.Fatalf("%v", err)
-	}
-	tests := []struct {
-		name    string
-		client  *Client
-		args    args
-		want    ClientGetCompletionsResponse
-		wantErr bool
-	}{
-		{
-			name:   "chatbot",
-			client: client,
-			args: args{
-				ctx:          context.TODO(),
-				deploymentID: deploymentID,
-				body: CompletionsOptions{
-					Prompt:      []*string{to.Ptr("What is Azure OpenAI?")},
-					MaxTokens:   to.Ptr(int32(2048 - 127)),
-					Temperature: to.Ptr(float32(0.0)),
-				},
-				options: nil,
-			},
-			want: ClientGetCompletionsResponse{
-				Completions: Completions{
-					Choices: []*Choice{
-						{
-							Text:         to.Ptr("\n\nAzure OpenAI is a platform from Microsoft that provides access to OpenAI's artificial intelligence (AI) technologies. It enables developers to build, train, and deploy AI models in the cloud. Azure OpenAI provides access to OpenAI's powerful AI technologies, such as GPT-3, which can be used to create natural language processing (NLP) applications, computer vision models, and reinforcement learning models."),
-							Index:        to.Ptr(int32(0)),
-							FinishReason: to.Ptr(CompletionsFinishReason("stop")),
-							Logprobs:     nil,
-						},
-					},
-					Usage: &CompletionsUsage{
-						CompletionTokens: to.Ptr(int32(85)),
-						PromptTokens:     to.Ptr(int32(6)),
-						TotalTokens:      to.Ptr(int32(91)),
-					},
+	require.NoError(t, err)
+
+	resp, err := client.GetCompletions(context.Background(), CompletionsOptions{
+		Prompt:      []*string{to.Ptr("What is Azure OpenAI?")},
+		MaxTokens:   to.Ptr(int32(2048 - 127)),
+		Temperature: to.Ptr(float32(0.0)),
+	}, nil)
+	require.NoError(t, err)
+
+	expected := ClientGetCompletionsResponse{
+		Completions: Completions{
+			Choices: []*Choice{
+				{
+					Text:         to.Ptr("\n\nAzure OpenAI is a platform from Microsoft that provides access to OpenAI's artificial intelligence (AI) technologies. It enables developers to build, train, and deploy AI models in the cloud. Azure OpenAI provides access to OpenAI's powerful AI technologies, such as GPT-3, which can be used to create natural language processing (NLP) applications, computer vision models, and reinforcement learning models."),
+					Index:        to.Ptr(int32(0)),
+					FinishReason: to.Ptr(CompletionsFinishReason("stop")),
+					Logprobs:     nil,
 				},
 			},
-			wantErr: false,
+			Usage: &CompletionsUsage{
+				CompletionTokens: to.Ptr(int32(85)),
+				PromptTokens:     to.Ptr(int32(6)),
+				TotalTokens:      to.Ptr(int32(91)),
+			},
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.client.GetCompletions(tt.args.ctx, tt.args.body, tt.args.options)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Client.GetCompletions() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			opts := cmpopts.IgnoreFields(Completions{}, "Created", "ID")
-			if diff := cmp.Diff(tt.want.Completions, got.Completions, opts); diff != "" {
-				t.Errorf("Client.GetCompletions(): -want, +got:\n%s", diff)
-			}
-		})
-	}
+
+	resp.ID = nil
+	resp.Created = nil
+
+	require.Equal(t, expected, resp)
 }
