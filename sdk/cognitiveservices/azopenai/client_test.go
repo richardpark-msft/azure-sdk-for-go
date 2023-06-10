@@ -29,7 +29,7 @@ func TestClient_GetChatCompletions(t *testing.T) {
 	resp, err := chatClient.GetChatCompletions(context.Background(), ChatCompletionsOptions{
 		Messages: []*ChatMessage{
 			{
-				Role:    to.Ptr(ChatRole("user")),
+				Role:    to.Ptr(ChatRoleUser),
 				Content: to.Ptr("Count to 10, with a comma between each number and no newlines. E.g., 1, 2, 3, ..."),
 			},
 		},
@@ -43,7 +43,7 @@ func TestClient_GetChatCompletions(t *testing.T) {
 			Choices: []*ChatChoice{
 				{
 					Message: &ChatChoiceMessage{
-						Role:    to.Ptr(ChatRole("assistant")),
+						Role:    to.Ptr(ChatRoleAssistant),
 						Content: to.Ptr("1, 2, 3, 4, 5, 6, 7, 8, 9, 10."),
 					},
 					Index:        to.Ptr(int32(0)),
