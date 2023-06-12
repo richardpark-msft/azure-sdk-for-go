@@ -33,20 +33,70 @@ func TestClient_GetEmbeddings(t *testing.T) {
 }
 
 func TestClient_ReplicatePyNoteBookTest(t *testing.T) {
-	chatClient := getTokenCredentialClient(t, testVars.completionsDeploymentID)
-	//embeddingClient := getTokenCredentialClient(t, testVars.chatDeploymentID)
+	// embeddingClient := getTokenCredentialClient(t, testVars.embeddingDeploymentID)
+
+	// mongoClient, err := mongo.Connect(context.Background(), options.Client().ApplyURI(testVars.mongoCS))
+	// require.NoError(t, err)
+
+	// db := mongoClient.Database("test")
+
+	// db.RunCommand(context.Background(), struct {} {
+	// 	createIndexes: 'exampleCollection',
+	// 	indexes: [
+	// 	  {
+	// 		name: 'vectorSearchIndex',
+	// 		key: {
+	// 		  "vectorContent": "cosmosSearch"
+	// 		},
+	// 		cosmosSearchOptions: {
+	// 		  kind: 'vector-ivf',
+	// 		  numLists: 100,
+	// 		  similarity: 'COS',
+	// 		  dimensions: 3
+	// 		}
+	// 	  }
+	// 	]
+	//   })
+
+	// client := redis.NewClient(&redis.Options{
+	// 	Addr: "localhost:6379",
+	// })
+
+	// redis.Comm
+
+	// statusCmd := client.Ping(context.Background())
+	// _, err := statusCmd.Result()
+	// require.NoError(t, err)
 
 	// TODO: this is really required, not optional, so it should be renamed.
-	opts := ChatCompletionsOptions{
-		Messages: []*ChatMessage{
-			// TODO: Role is a bit annoying here. Maybe we can just export them as ptr-string, since
-			// that's how they'll be used.
-			{Role: to.Ptr(ChatRoleUser), Content: to.Ptr("Is Sam Bankman-Fried's company, FTX, considered a well-managed company?")},
-		},
-		Temperature: to.Ptr[float32](1.0),
-	}
+	// chatClient := getTokenCredentialClient(t, testVars.completionsDeploymentID)
+	// opts := ChatCompletionsOptions{
+	// 	Messages: []*ChatMessage{
+	// 		// TODO: Role is a bit annoying here. Maybe we can just export them as ptr-string, since
+	// 		// that's how they'll be used.
+	// 		{Role: to.Ptr(ChatRoleUser), Content: to.Ptr("Is Sam Bankman-Fried's company, FTX, considered a well-managed company?")},
+	// 	},
+	// 	Temperature: to.Ptr[float32](1.0),
+	// }
 
-	chatClient.GetChatCompletions(context.Background(), opts, nil)
+	// https://platform.openai.com/docs/api-reference/embeddings
+	// resp, err := embeddingClient.GetEmbeddings(context.Background(), EmbeddingsOptions{
+	// 	// `Input` is an any field (can be string, or array of string)
+	// 	Input: []string{
+	// 		"context",
+	// 	},
+	// 	Model: &testVars.embeddingDeploymentID,
+	// 	User:  to.Ptr(t.Name()),
+	// }, nil)
+	// require.NoError(t, err)
+	// require.NotNil(t, resp)
+
+	// So for the content that we want to use we calculate embeddings.
+	// Then for the thing we want to check against we calculate embeddings.
+	// Then we feed that into "something" that understands how to do vector comparisons in a useful way
+	// and then use that.
+
+	// in their example they use Redis, so let's just do that.
 }
 
 func runEmbeddingsTest(t *testing.T, client *Client) {
@@ -59,7 +109,7 @@ func runEmbeddingsTest(t *testing.T, client *Client) {
 	}, nil)
 	require.NoError(t, err)
 
-	require.Equal(t, len(resp.Data[0].Embedding), 4096)
+	require.Equal(t, 4096, len(resp.Data[0].Embedding))
 }
 
 func getOpenAIClient(t *testing.T) *Client {

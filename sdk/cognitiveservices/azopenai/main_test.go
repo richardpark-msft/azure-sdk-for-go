@@ -23,6 +23,8 @@ var testVars struct {
 
 	openAIKey      string
 	openAIEndpoint string
+
+	mongoCS string
 }
 
 func TestMain(m *testing.M) {
@@ -39,6 +41,8 @@ func TestMain(m *testing.M) {
 	// OpenAI parameters - optional. Tests that use them will be skipped if you don't provide a key.
 	testVars.openAIKey = os.Getenv("OPENAI_API_KEY")
 	testVars.openAIEndpoint = os.Getenv("OPENAI_ENDPOINT")
+
+	testVars.mongoCS = os.Getenv("MONGO_CS")
 
 	os.Exit(m.Run())
 }
