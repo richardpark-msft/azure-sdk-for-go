@@ -1,7 +1,9 @@
 //go:build go1.18
 // +build go1.18
 
-//go:generate autorest ./autorest.md
+//go:generate pwsh build-typespec.ps1
+//go:generate autorest ./autorest.azure.md
+//go:generate autorest ./autorest.openai.md
 //go:generate go mod tidy
 //go:generate goimports -w .
 

@@ -1,0 +1,4 @@
+# based on https://github.com/Azure/azure-sdk-for-net/blob/main/sdk/openai/Azure.AI.OpenAI/tsp-location.yaml
+directory: specification/cognitiveservices/OpenAI.Inference
+commit: fe056966cf070be84e92dd2dc1b566bae35002cf
+repo: Azure/azure-rest-api-specs
