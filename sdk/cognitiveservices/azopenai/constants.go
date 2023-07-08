@@ -8,33 +8,12 @@
 
 package azopenai
 
-// AzureOpenAIOperationState - The state of a job or item.
-type AzureOpenAIOperationState string
-
-const (
-	AzureOpenAIOperationStateCanceled   AzureOpenAIOperationState = "canceled"
-	AzureOpenAIOperationStateFailed     AzureOpenAIOperationState = "failed"
-	AzureOpenAIOperationStateNotRunning AzureOpenAIOperationState = "notRunning"
-	AzureOpenAIOperationStateRunning    AzureOpenAIOperationState = "running"
-	AzureOpenAIOperationStateSucceeded  AzureOpenAIOperationState = "succeeded"
-)
-
-// PossibleAzureOpenAIOperationStateValues returns the possible values for the AzureOpenAIOperationState const type.
-func PossibleAzureOpenAIOperationStateValues() []AzureOpenAIOperationState {
-	return []AzureOpenAIOperationState{
-		AzureOpenAIOperationStateCanceled,
-		AzureOpenAIOperationStateFailed,
-		AzureOpenAIOperationStateNotRunning,
-		AzureOpenAIOperationStateRunning,
-		AzureOpenAIOperationStateSucceeded,
-	}
-}
-
 // ChatRole - A description of the intended purpose of a message within a chat completions interaction.
 type ChatRole string
 
 const (
 	ChatRoleAssistant ChatRole = "assistant"
+	ChatRoleFunction  ChatRole = "function"
 	ChatRoleSystem    ChatRole = "system"
 	ChatRoleUser      ChatRole = "user"
 )
@@ -43,6 +22,7 @@ const (
 func PossibleChatRoleValues() []ChatRole {
 	return []ChatRole{
 		ChatRoleAssistant,
+		ChatRoleFunction,
 		ChatRoleSystem,
 		ChatRoleUser,
 	}
@@ -53,6 +33,7 @@ type CompletionsFinishReason string
 
 const (
 	CompletionsFinishReasonContentFilter CompletionsFinishReason = "content_filter"
+	CompletionsFinishReasonFunctionCall  CompletionsFinishReason = "function_call"
 	CompletionsFinishReasonLength        CompletionsFinishReason = "length"
 	CompletionsFinishReasonStop          CompletionsFinishReason = "stop"
 )
@@ -61,24 +42,25 @@ const (
 func PossibleCompletionsFinishReasonValues() []CompletionsFinishReason {
 	return []CompletionsFinishReason{
 		CompletionsFinishReasonContentFilter,
+		CompletionsFinishReasonFunctionCall,
 		CompletionsFinishReasonLength,
 		CompletionsFinishReasonStop,
 	}
 }
 
-// ImageGenerationResponseFormat - The format in which the generated images are returned.
-type ImageGenerationResponseFormat string
+// FunctionCallPreset - Preset values to control how the mode; responds to function calls.
+type FunctionCallPreset string
 
 const (
-	ImageGenerationResponseFormatB64JSON ImageGenerationResponseFormat = "b64_json"
-	ImageGenerationResponseFormatURL     ImageGenerationResponseFormat = "url"
+	FunctionCallPresetAuto FunctionCallPreset = "auto"
+	FunctionCallPresetNone FunctionCallPreset = "none"
 )
 
-// PossibleImageGenerationResponseFormatValues returns the possible values for the ImageGenerationResponseFormat const type.
-func PossibleImageGenerationResponseFormatValues() []ImageGenerationResponseFormat {
-	return []ImageGenerationResponseFormat{
-		ImageGenerationResponseFormatB64JSON,
-		ImageGenerationResponseFormatURL,
+// PossibleFunctionCallPresetValues returns the possible values for the FunctionCallPreset const type.
+func PossibleFunctionCallPresetValues() []FunctionCallPreset {
+	return []FunctionCallPreset{
+		FunctionCallPresetAuto,
+		FunctionCallPresetNone,
 	}
 }
 
@@ -97,5 +79,27 @@ func PossibleImageSizeValues() []ImageSize {
 		ImageSize512x512,
 		ImageSize1024x1024,
 		ImageSize256x256,
+	}
+}
+
+// State - The state of a job or item.
+type State string
+
+const (
+	StateCanceled   State = "canceled"
+	StateFailed     State = "failed"
+	StateNotRunning State = "notRunning"
+	StateRunning    State = "running"
+	StateSucceeded  State = "succeeded"
+)
+
+// PossibleStateValues returns the possible values for the State const type.
+func PossibleStateValues() []State {
+	return []State{
+		StateCanceled,
+		StateFailed,
+		StateNotRunning,
+		StateRunning,
+		StateSucceeded,
 	}
 }

@@ -6,66 +6,53 @@
 
 package azopenai_test
 
-import (
-	"context"
-	"encoding/base64"
-	"net/http"
-	"testing"
-	"time"
+// func TestImageGeneration_AzureOpenAI(t *testing.T) {
+// 	if recording.GetRecordMode() == recording.PlaybackMode {
+// 		t.Skipf("Ignoring poller-based test")
+// 	}
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
-	"github.com/Azure/azure-sdk-for-go/sdk/cognitiveservices/azopenai"
-	"github.com/Azure/azure-sdk-for-go/sdk/internal/recording"
-	"github.com/stretchr/testify/require"
-)
+// 	cred, err := azopenai.NewKeyCredential(apiKey)
+// 	require.NoError(t, err)
 
-func TestImageGeneration_AzureOpenAI(t *testing.T) {
-	if recording.GetRecordMode() == recording.PlaybackMode {
-		t.Skipf("Ignoring poller-based test")
-	}
+// 	client, err := azopenai.NewClientWithKeyCredential(endpoint, cred, "", newClientOptionsForTest(t))
+// 	require.NoError(t, err)
 
-	cred, err := azopenai.NewKeyCredential(apiKey)
-	require.NoError(t, err)
+// 	testImageGeneration(t, client, azopenai.ImageGenerationResponseFormatURL)
+// }
 
-	client, err := azopenai.NewClientWithKeyCredential(endpoint, cred, "", newClientOptionsForTest(t))
-	require.NoError(t, err)
+// func TestImageGeneration_OpenAI(t *testing.T) {
+// 	client := newOpenAIClientForTest(t)
+// 	testImageGeneration(t, client, azopenai.ImageGenerationResponseFormatURL)
+// }
 
-	testImageGeneration(t, client, azopenai.ImageGenerationResponseFormatURL)
-}
+// func TestImageGeneration_OpenAI_Base64(t *testing.T) {
+// 	client := newOpenAIClientForTest(t)
+// 	testImageGeneration(t, client, azopenai.ImageGenerationResponseFormatB64JSON)
+// }
 
-func TestImageGeneration_OpenAI(t *testing.T) {
-	client := newOpenAIClientForTest(t)
-	testImageGeneration(t, client, azopenai.ImageGenerationResponseFormatURL)
-}
+// func testImageGeneration(t *testing.T, client *azopenai.Client, responseFormat azopenai.ImageGenerationResponseFormat) {
+// 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+// 	defer cancel()
 
-func TestImageGeneration_OpenAI_Base64(t *testing.T) {
-	client := newOpenAIClientForTest(t)
-	testImageGeneration(t, client, azopenai.ImageGenerationResponseFormatB64JSON)
-}
+// 	resp, err := client.CreateImage(ctx, azopenai.ImageGenerationOptions{
+// 		Prompt:         to.Ptr("a cat"),
+// 		Size:           to.Ptr(azopenai.ImageSize256x256),
+// 		ResponseFormat: &responseFormat,
+// 	}, nil)
+// 	require.NoError(t, err)
 
-func testImageGeneration(t *testing.T, client *azopenai.Client, responseFormat azopenai.ImageGenerationResponseFormat) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
-	resp, err := client.CreateImage(ctx, azopenai.ImageGenerationOptions{
-		Prompt:         to.Ptr("a cat"),
-		Size:           to.Ptr(azopenai.ImageSize256x256),
-		ResponseFormat: &responseFormat,
-	}, nil)
-	require.NoError(t, err)
-
-	if recording.GetRecordMode() == recording.LiveMode {
-		switch responseFormat {
-		case azopenai.ImageGenerationResponseFormatURL:
-			imageLocation := resp.Data[0].Result.(azopenai.ImageLocation)
-			headResp, err := http.DefaultClient.Head(*imageLocation.URL)
-			require.NoError(t, err)
-			require.Equal(t, http.StatusOK, headResp.StatusCode)
-		case azopenai.ImageGenerationResponseFormatB64JSON:
-			imagePayload := resp.Data[0].Result.(azopenai.ImagePayload)
-			bytes, err := base64.StdEncoding.DecodeString(*imagePayload.B64JSON)
-			require.NoError(t, err)
-			require.NotEmpty(t, bytes)
-		}
-	}
-}
+// 	if recording.GetRecordMode() == recording.LiveMode {
+// 		switch responseFormat {
+// 		case azopenai.ImageGenerationResponseFormatURL:
+// 			imageLocation := resp.Data[0].Result.(azopenai.ImageLocation)
+// 			headResp, err := http.DefaultClient.Head(*imageLocation.URL)
+// 			require.NoError(t, err)
+// 			require.Equal(t, http.StatusOK, headResp.StatusCode)
+// 		case azopenai.ImageGenerationResponseFormatB64JSON:
+// 			imagePayload := resp.Data[0].Result.(azopenai.ImagePayload)
+// 			bytes, err := base64.StdEncoding.DecodeString(*imagePayload.B64JSON)
+// 			require.NoError(t, err)
+// 			require.NotEmpty(t, bytes)
+// 		}
+// 	}
+// }

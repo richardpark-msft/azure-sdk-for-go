@@ -13,7 +13,7 @@ module: github.com/Azure/azure-sdk-for-go/sdk/cognitiveservices/azopenai
 license-header: MICROSOFT_MIT_NO_VERSION
 openapi-type: data-plane
 go: true
-use: "@autorest/go@4.0.0-preview.50"
+use: "@autorest/go@4.0.0-preview.52"
 title: "OpenAI"
 ```
 
@@ -79,10 +79,9 @@ directive:
     where: $.components.schemas["ImageOperation"].properties.status
     transform: $["$ref"] = $.anyOf[0]["$ref"];delete $.anyOf;
   - from: openapi-document
-    where: $.components.schemas["ImageGenerationOptions"].properties
+    where: $.components.schemas.ImageGenerationOptions.properties
     transform: |
       $.size["$ref"] = "#/components/schemas/ImageSize"; delete $.allOf;
-      $.response_format["$ref"] = "#/components/schemas/ImageGenerationResponseFormat"; delete $.allOf;
   - from: openapi-document
     where: $.components.schemas["ImageOperationResponse"].properties
     transform: |
@@ -159,6 +158,7 @@ directive:
   - from:
       - client.go
       - models.go
+      - options.go
       - response_types.go
     where: $
     transform: return $.replace(/Client(\w+)((?:Options|Response))/g, "$1$2");
@@ -212,4 +212,12 @@ directive:
         .replace(/GetAzureBatchImageGenerationOperationStatus/g, "getAzureBatchImageGenerationOperationStatus")
         .replace(/BeginAzureBatchImageGenerationInternal/g, "beginAzureBatchImageGeneration")
         .replace(/BatchImageGenerationOperationResponse/g, "batchImageGenerationOperationResponse");
+
+  # BUG: ChatCompletionsOptionsFunctionCall is another one of those "here's mutually exclusive values" options...
+  - from: models.go
+    where: $
+    transform: |
+      return $
+        .replace(/\/\/ ChatCompletionsOptionsFunctionCall.+?\n}/, "")
+        .replace(/FunctionCall any/, "FunctionCall ChatCompletionsOptionsFunctionCall");
 ```
