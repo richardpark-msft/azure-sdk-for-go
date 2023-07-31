@@ -43,6 +43,8 @@ type AMQPReceiverCloser interface {
 // AMQPSender is implemented by *amqp.Sender
 type AMQPSender interface {
 	Send(ctx context.Context, msg *amqp.Message, o *amqp.SendOptions) error
+	Declare(ctx context.Context, msg amqp.TransactionDeclare, o *amqp.SendOptions) (any, error)
+	Discharge(ctx context.Context, discharge amqp.TransactionDischarge, opts *amqp.SendOptions) error
 	MaxMessageSize() uint64
 	LinkName() string
 }
@@ -234,6 +236,14 @@ type AMQPSenderWrapper struct {
 
 func (sw *AMQPSenderWrapper) Send(ctx context.Context, msg *amqp.Message, o *amqp.SendOptions) error {
 	return sw.Inner.Send(ctx, msg, o)
+}
+
+func (sw *AMQPSenderWrapper) Declare(ctx context.Context, msg amqp.TransactionDeclare, o *amqp.SendOptions) (any, error) {
+	return sw.Inner.Declare(ctx, msg, o)
+}
+
+func (sw *AMQPSenderWrapper) Discharge(ctx context.Context, discharge amqp.TransactionDischarge, opts *amqp.SendOptions) error {
+	return sw.Inner.Discharge(ctx, discharge, opts)
 }
 
 func (sw *AMQPSenderWrapper) MaxMessageSize() uint64 {

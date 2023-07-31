@@ -381,6 +381,35 @@ func (m *MockAMQPSender) EXPECT() *MockAMQPSenderMockRecorder {
 	return m.recorder
 }
 
+// Declare mocks base method.
+func (m *MockAMQPSender) Declare(ctx context.Context, msg go_amqp.TransactionDeclare, o *go_amqp.SendOptions) (any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Declare", ctx, msg, o)
+	ret0, _ := ret[0].(any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Declare indicates an expected call of Declare.
+func (mr *MockAMQPSenderMockRecorder) Declare(ctx, msg, o interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Declare", reflect.TypeOf((*MockAMQPSender)(nil).Declare), ctx, msg, o)
+}
+
+// Discharge mocks base method.
+func (m *MockAMQPSender) Discharge(ctx context.Context, discharge go_amqp.TransactionDischarge, opts *go_amqp.SendOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Discharge", ctx, discharge, opts)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Discharge indicates an expected call of Discharge.
+func (mr *MockAMQPSenderMockRecorder) Discharge(ctx, discharge, opts interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Discharge", reflect.TypeOf((*MockAMQPSender)(nil).Discharge), ctx, discharge, opts)
+}
+
 // LinkName mocks base method.
 func (m *MockAMQPSender) LinkName() string {
 	m.ctrl.T.Helper()
@@ -458,6 +487,35 @@ func (m *MockAMQPSenderCloser) Close(ctx context.Context) error {
 func (mr *MockAMQPSenderCloserMockRecorder) Close(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockAMQPSenderCloser)(nil).Close), ctx)
+}
+
+// Declare mocks base method.
+func (m *MockAMQPSenderCloser) Declare(ctx context.Context, msg go_amqp.TransactionDeclare, o *go_amqp.SendOptions) (any, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Declare", ctx, msg, o)
+	ret0, _ := ret[0].(any)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Declare indicates an expected call of Declare.
+func (mr *MockAMQPSenderCloserMockRecorder) Declare(ctx, msg, o interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Declare", reflect.TypeOf((*MockAMQPSenderCloser)(nil).Declare), ctx, msg, o)
+}
+
+// Discharge mocks base method.
+func (m *MockAMQPSenderCloser) Discharge(ctx context.Context, discharge go_amqp.TransactionDischarge, opts *go_amqp.SendOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Discharge", ctx, discharge, opts)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Discharge indicates an expected call of Discharge.
+func (mr *MockAMQPSenderCloserMockRecorder) Discharge(ctx, discharge, opts interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Discharge", reflect.TypeOf((*MockAMQPSenderCloser)(nil).Discharge), ctx, discharge, opts)
 }
 
 // LinkName mocks base method.

@@ -11,6 +11,11 @@ require (
 	github.com/Azure/go-amqp v1.0.0
 )
 
+// point to:
+// repo: github.com/richardpark-msft/go-amqp repo
+// branch: amqp-transactions
+replace github.com/Azure/go-amqp v1.0.0 => ../../../../../_/amqp-transactions
+
 require (
 	// used in tests only
 	github.com/joho/godotenv v1.3.0
