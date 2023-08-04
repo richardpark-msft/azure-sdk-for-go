@@ -8,6 +8,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
@@ -21,6 +22,7 @@ type (
 		cleanupOnClose func()
 		links          internal.AMQPLinks
 		retryOptions   RetryOptions
+		tracer         tracing.Tracer
 	}
 )
 
@@ -204,6 +206,7 @@ type newSenderArgs struct {
 	queueOrTopic   string
 	cleanupOnClose func()
 	retryOptions   RetryOptions
+	tracer         tracing.Tracer
 }
 
 func newSender(args newSenderArgs) (*Sender, error) {
@@ -215,6 +218,7 @@ func newSender(args newSenderArgs) (*Sender, error) {
 		queueOrTopic:   args.queueOrTopic,
 		cleanupOnClose: args.cleanupOnClose,
 		retryOptions:   args.retryOptions,
+		tracer:         args.tracer,
 	}
 
 	sender.links = internal.NewAMQPLinks(internal.NewAMQPLinksArgs{

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
@@ -38,6 +39,8 @@ type Client struct {
 	// acceptNextTimeout controls how long the session accept can take before
 	// the server stops waiting.
 	acceptNextTimeout time.Duration
+
+	tracer tracing.Tracer
 }
 
 // ClientOptions contains options for the `NewClient` and `NewClientFromConnectionString`
@@ -56,6 +59,13 @@ type ClientOptions struct {
 	// RetryOptions controls how often operations are retried from this client and any
 	// Receivers and Senders created from this client.
 	RetryOptions RetryOptions
+
+	// TracingProvider configures the tracing provider.
+	// It defaults to a no-op tracer.
+	TracingProvider tracing.Provider
+
+	// TracingNamespace contains the value to use for the az.namespace span attribute.
+	TracingNamespace string
 }
 
 // RetryOptions controls how often operations are retried from this client and any
@@ -145,6 +155,16 @@ func newClientImpl(creds clientCreds, args clientImplArgs) (*Client, error) {
 		nsOptions = append(nsOptions, option)
 	}
 
+	var tp tracing.Provider
+
+	if args.ClientOptions != nil {
+		tp = args.ClientOptions.TracingProvider
+	}
+
+	client.tracer = tp.NewTracer("azservicebus", internal.Version)
+
+	nsOptions = append(nsOptions, internal.NamespaceWithTracer(client.tracer))
+
 	if args.ClientOptions != nil {
 		client.retryOptions = args.ClientOptions.RetryOptions
 
@@ -178,6 +198,7 @@ func (client *Client) NewReceiverForQueue(queueName string, options *ReceiverOpt
 		entity:              entity{Queue: queueName},
 		getRecoveryKindFunc: internal.GetRecoveryKind,
 		retryOptions:        client.retryOptions,
+		tracer:              client.tracer,
 	}, options)
 
 	if err != nil {
@@ -197,6 +218,7 @@ func (client *Client) NewReceiverForSubscription(topicName string, subscriptionN
 		entity:              entity{Topic: topicName, Subscription: subscriptionName},
 		getRecoveryKindFunc: internal.GetRecoveryKind,
 		retryOptions:        client.retryOptions,
+		tracer:              client.tracer,
 	}, options)
 
 	if err != nil {
@@ -220,6 +242,7 @@ func (client *Client) NewSender(queueOrTopic string, options *NewSenderOptions) 
 		queueOrTopic:   queueOrTopic,
 		cleanupOnClose: cleanupOnClose,
 		retryOptions:   client.retryOptions,
+		tracer:         client.tracer,
 	})
 
 	if err != nil {
@@ -369,3 +392,25 @@ func (client *Client) getCleanupForCloseable() (uint64, func()) {
 		client.linksMu.Unlock()
 	}
 }
+
+// func (client *Client) traceTODO() {
+// 	tr := client.tracer.NewTracer("azservicebus", internal.Version)
+
+// 	ctx, span := tr.Start(context.Background(), "span-name", &tracing.SpanOptions{
+// 		Kind:       tracing.SpanKindClient,
+// 		Attributes: []tracing.Attribute{},
+// 	})
+
+// 	// ctx can be passed to any child calls.
+// 	// span is the span.
+
+// 	if tr.Enabled() {
+// 		tr.SetAttributes(
+// 			tracing.Attribute{Key: "az.namespace", Value: "Microsoft.ServiceBus"},
+// 			tracing.Attribute{Key: "", Value: ""},
+// 		)
+
+// 		// enriching a span
+// 		// span := tr.SpanFromContext(context.Background())
+// 	}
+// }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/telemetry"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/uuid"
@@ -25,7 +26,7 @@ import (
 	"github.com/Azure/go-amqp"
 )
 
-var rootUserAgent = telemetry.Format("azservicebus", Version)
+var RootUserAgent = telemetry.Format("azservicebus", Version)
 
 type (
 	// Namespace is an abstraction over an amqp.Client, allowing us to hold onto a single
@@ -57,6 +58,10 @@ type (
 
 		// newClientFn exists so we can stub out newClient for unit tests.
 		newClientFn func(ctx context.Context) (amqpwrap.AMQPClient, error)
+
+		// tracer is used to provide tracing for libraries like OpenTelemetry, giving
+		// some insight into which operations are occurring per request.
+		tracer tracing.Tracer
 	}
 
 	// NamespaceOption provides structure for configuring a new Service Bus namespace
@@ -110,6 +115,14 @@ func NamespaceWithConnectionString(connStr string) NamespaceOption {
 func NamespaceWithTLSConfig(tlsConfig *tls.Config) NamespaceOption {
 	return func(ns *Namespace) error {
 		ns.tlsConfig = tlsConfig
+		return nil
+	}
+}
+
+// NamespaceWithTracer appends to the root user-agent value.
+func NamespaceWithTracer(tracer tracing.Tracer) NamespaceOption {
+	return func(ns *Namespace) error {
+		ns.tracer = tracer
 		return nil
 	}
 }
@@ -503,7 +516,7 @@ func (ns *Namespace) GetEntityAudience(entityPath string) string {
 }
 
 func (ns *Namespace) getUserAgent() string {
-	userAgent := rootUserAgent
+	userAgent := RootUserAgent
 	if ns.userAgent != "" {
 		userAgent = fmt.Sprintf("%s %s", ns.userAgent, userAgent)
 	}

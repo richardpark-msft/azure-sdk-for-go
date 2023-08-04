@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/exported"
@@ -56,6 +57,7 @@ type Receiver struct {
 	receiving                bool
 	retryOptions             RetryOptions
 	settler                  settler
+	tracer                   tracing.Tracer
 }
 
 // ReceiverOptions contains options for the `Client.NewReceiverForQueue` or `Client.NewReceiverForSubscription`
@@ -117,6 +119,7 @@ type newReceiverArgs struct {
 	getRecoveryKindFunc func(err error) internal.RecoveryKind
 	newLinkFn           func(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error)
 	retryOptions        RetryOptions
+	tracer              tracing.Tracer
 }
 
 var emptyCancelFn = func() string {
@@ -135,6 +138,7 @@ func newReceiver(args newReceiverArgs, options *ReceiverOptions) (*Receiver, err
 		lastPeekedSequenceNumber: 0,
 		maxAllowedCredits:        defaultLinkRxBuffer,
 		retryOptions:             args.retryOptions,
+		tracer:                   args.tracer,
 	}
 
 	receiver.cancelReleaser.Store(emptyCancelFn)

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
@@ -115,6 +116,8 @@ type AMQPLinksImpl struct {
 	ns NamespaceForAMQPLinks
 
 	utils.Logger
+
+	tracer tracing.Tracer
 }
 
 // CreateLinkFunc creates the links, using the given session. Typically you'll only create either an
@@ -126,6 +129,7 @@ type NewAMQPLinksArgs struct {
 	EntityPath          string
 	CreateLinkFunc      CreateLinkFunc
 	GetRecoveryKindFunc func(err error) RecoveryKind
+	Tracer              tracing.Tracer
 }
 
 // NewAMQPLinks creates a session, starts the claim refresher and creates an associated
@@ -140,6 +144,7 @@ func NewAMQPLinks(args NewAMQPLinksArgs) AMQPLinks {
 		getRecoveryKindFunc: args.GetRecoveryKindFunc,
 		ns:                  args.NS,
 		Logger:              utils.NewLogger(),
+		tracer:              args.Tracer,
 	}
 
 	return l

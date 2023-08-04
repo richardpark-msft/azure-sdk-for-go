@@ -7,7 +7,7 @@ retract v1.1.2 // Breaks customers in situations where close is slow/infinite.
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.0.0
-	github.com/Azure/azure-sdk-for-go/sdk/internal v1.2.0
+	github.com/Azure/azure-sdk-for-go/sdk/internal v1.3.0
 	github.com/Azure/go-amqp v1.0.0
 )
 
@@ -24,6 +24,8 @@ require (
 )
 
 require github.com/golang/mock v1.6.0
+
+replace github.com/Azure/azure-sdk-for-go/sdk/azcore v1.4.0 => ../../azcore
 
 require (
 	code.cloudfoundry.org/clock v0.0.0-20180518195852-02e53af36e6c // indirect

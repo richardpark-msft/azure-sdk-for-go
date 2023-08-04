@@ -5,10 +5,14 @@ package azservicebus
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/atom"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/conn"
@@ -76,6 +80,87 @@ func TestAdminClient_Queue_Forwarding(t *testing.T) {
 	require.NoError(t, err)
 
 	require.EqualValues(t, "this message will be auto-forwarded", string(forwardedMessages[0].Body))
+}
+
+func TestAdminClient_Unauthorized(t *testing.T) {
+	cs := test.GetConnectionStringWithoutManagePerms(t)
+	adminClient, err := admin.NewClientFromConnectionString(cs, nil)
+
+	if err != nil {
+		panic(err)
+	}
+
+	queueName := "a queue"
+
+	_, err = adminClient.CreateQueue(context.Background(), queueName, nil)
+
+	if err != nil {
+		var respErr *azcore.ResponseError
+
+		if errors.As(err, &respErr) && respErr.StatusCode == http.StatusUnauthorized {
+			// recreate our HTTP client instance
+			fmt.Printf("Recreating admin client, not authorized\n")
+			adminClient, err = admin.NewClientFromConnectionString(cs, nil)
+
+			if err != nil {
+				panic(err)
+			}
+		} else {
+			panic(err)
+		}
+	}
+}
+
+func TestAdminClient_Unauthorized2(t *testing.T) {
+	cs := "Endpoint=sb://riparkmig3.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=zKp0MoFEhdE6WZTr5oDqsBo2rw2/4YuIp+ASbGrjShg="
+
+	adminClient, err := admin.NewClientFromConnectionString(cs, &admin.ClientOptions{
+		ClientOptions: policy.ClientOptions{
+			Transport: &http.Client{},
+		},
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	queueName := "queue"
+
+	for i := 0; i < 100000; i++ {
+		resp, err := adminClient.GetQueue(context.Background(), queueName, nil)
+
+		if err != nil {
+			var respErr *azcore.ResponseError
+
+			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusUnauthorized {
+
+				// recreate our HTTP client instance
+				fmt.Printf("Recreating admin client, not authorized\n")
+
+				adminClient, err = admin.NewClientFromConnectionString(cs, &admin.ClientOptions{
+					ClientOptions: policy.ClientOptions{
+						Transport: &http.Client{},
+					},
+				})
+
+				if err != nil {
+					panic(err)
+				}
+
+				continue
+			} else {
+				panic(err)
+			}
+		}
+
+		if resp == nil {
+			fmt.Printf("[%d] No queue available\n", i)
+			continue
+		}
+
+		fmt.Printf("[%d] Got queue info for queue, status: %s\n", i, *resp.Status)
+		time.Sleep(time.Second)
+	}
 }
 
 func TestAdminClient_GetQueueRuntimeProperties(t *testing.T) {
