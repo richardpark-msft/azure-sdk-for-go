@@ -174,9 +174,52 @@ func (s *Sender) Close(ctx context.Context) error {
 }
 
 func (s *Sender) sendMessage(ctx context.Context, message amqpCompatibleMessage) error {
+
+	// TODO: we need a way to store and retrieve this. I believe we are supposed to encode it into the
+	// properties of the message.
+	// message.GetSpanContext()
+	// https://gist.github.com/lmolkova/e4215c0f44a49ef824983382762e6b92#:~:text=context%0A%20%20for(EventData%20msg%20%3A%20messages)%7B-,if%20(msg.SpanContext%20!%3D%20null)%20%7B,-//%20if%20message%20has%20context%2C%20link%20it%20to%20the
+
+	// TODO: we also appear to be missing the 'AddLink' part of the spec.
+	// https://gist.github.com/lmolkova/e4215c0f44a49ef824983382762e6b92#:~:text=EventData%20or%20EventDataBatch-,builder.addLink((SpanContext)msg.SpanContext)%3B,-%7D%20else%20%7B
+	// spanContext := message.GetSpanContext()
+
+	ctx, sendSpan := s.tracer.Start(ctx, "Azure.ServiceBus.Send", &tracing.SpanOptions{
+		Kind: tracing.SpanKindClient,
+	})
+	defer sendSpan.End()
+
+	amqpMsg := message.toAMQPMessage()
+
+	spanContext, hasContext := internal.GetSpanContext(amqpMsg)
+
+	if hasContext {
+		internal.AddTracingLink(sendSpan, spanContext)
+	} else {
+		_, messageSpan := s.tracer.Start(ctx, "Azure.ServiceBus.message", &tracing.SpanOptions{
+			Kind: tracing.SpanKindProducer,
+		})
+
+		traceParent := internal.GetTraceParent(messageSpan)
+		amqpMsg.ApplicationProperties["Diagnostic-Id"] = traceParent
+
+		messageSpan.End()
+		spanContext = messageSpan
+	}
+
+	sendSpan.SetAttributes(
+		tracing.Attribute{Key: "az.namespace", Value: "Microsoft.ServiceBus"},
+		tracing.Attribute{Key: "message_bus.destination", Value: s.links.EntityPath()},
+		tracing.Attribute{Key: "peer.address", Value: s.links.Endpoint()},
+	)
+
 	err := s.links.Retry(ctx, EventSender, "SendMessage", func(ctx context.Context, lwid *internal.LinksWithID, args *utils.RetryFnArgs) error {
 		return lwid.Sender.Send(ctx, message.toAMQPMessage(), nil)
 	}, RetryOptions(s.retryOptions))
+
+	if err != nil {
+		sendSpan.SetStatus(tracing.SpanStatusError, err.Error())
+	}
 
 	if amqpErr := (*amqp.Error)(nil); errors.As(err, &amqpErr) && amqpErr.Condition == amqp.ErrCondMessageSizeExceeded {
 		return ErrMessageTooLarge
