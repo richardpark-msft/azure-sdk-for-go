@@ -279,6 +279,10 @@ func (ns *FakeNS) Recover(ctx context.Context, clientRevision uint64) (bool, err
 	return true, nil
 }
 
+func (ns *FakeNS) Hostname() string {
+	return "hostname"
+}
+
 func (ns *FakeNS) Close(permanently bool) error {
 	ns.CloseCalled++
 	return nil

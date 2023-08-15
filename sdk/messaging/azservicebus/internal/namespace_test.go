@@ -15,6 +15,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/telemetry"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/auth"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/constants"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sbauth"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/test"
 	"github.com/Azure/go-amqp"
@@ -39,7 +40,7 @@ func TestNamespaceUserAgent(t *testing.T) {
 	// User agent, no application ID  : 'azsdk-go-azservicebus/v1.1.4 (go1.19.3; linux)'
 	// User agent, with application ID: 'userApplicationID azsdk-go-azservicebus/v1.1.4 (go1.19.3; linux)'
 
-	baseUserAgent := telemetry.Format("azservicebus", Version)
+	baseUserAgent := telemetry.Format("azservicebus", constants.Version)
 	require.NotEmpty(t, baseUserAgent)
 
 	t.Logf("User agent, no application ID  : '%s'", ns.getUserAgent())

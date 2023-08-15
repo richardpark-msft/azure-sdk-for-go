@@ -11,13 +11,36 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	aztracing "github.com/Azure/azure-sdk-for-go/sdk/azcore/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/admin"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/test"
 	"github.com/stretchr/testify/require"
 )
 
+var stdoutTracingProvider = aztracing.NewProvider(func(name, version string) aztracing.Tracer {
+	return aztracing.NewTracer(func(ctx context.Context, spanName string, options *aztracing.SpanOptions) (context.Context, aztracing.Span) {
+		if options == nil {
+			panic("Every span created in this library should set options")
+		}
+
+		attrs := ""
+
+		if options != nil {
+			for _, attr := range options.Attributes {
+				attrs += fmt.Sprintf("\n  %q=%v", attr.Key, attr.Value)
+			}
+		}
+
+		fmt.Printf("\n==> TRACE: spanName: %q, spanKind: %d, attrs: %s\n===> END TRACE\n", spanName, options.Kind, attrs)
+		return ctx, aztracing.Span{}
+	}, &aztracing.TracerOptions{})
+}, nil)
+
 func Test_Sender_MessageID(t *testing.T) {
 	client, cleanup, queueName := setupLiveTest(t, &liveTestOptions{
+		ClientOptions: &ClientOptions{
+			TracingProvider: stdoutTracingProvider,
+		},
 		QueueProperties: &admin.QueueProperties{
 			EnablePartitioning: to.Ptr(true),
 		}})

@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	aztracing "github.com/Azure/azure-sdk-for-go/sdk/azcore/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/disttrace"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/exported"
 )
 
@@ -38,6 +40,8 @@ type Client struct {
 	// acceptNextTimeout controls how long the session accept can take before
 	// the server stops waiting.
 	acceptNextTimeout time.Duration
+
+	traceProvider aztracing.Provider
 }
 
 // ClientOptions contains options for the `NewClient` and `NewClientFromConnectionString`
@@ -56,6 +60,10 @@ type ClientOptions struct {
 	// RetryOptions controls how often operations are retried from this client and any
 	// Receivers and Senders created from this client.
 	RetryOptions RetryOptions
+
+	// TracingProvider configures the tracing provider.
+	// It defaults to a no-op tracer.
+	TracingProvider aztracing.Provider
 }
 
 // RetryOptions controls how often operations are retried from this client and any
@@ -146,6 +154,8 @@ func newClientImpl(creds clientCreds, args clientImplArgs) (*Client, error) {
 	}
 
 	if args.ClientOptions != nil {
+		client.traceProvider = args.ClientOptions.TracingProvider
+
 		client.retryOptions = args.ClientOptions.RetryOptions
 
 		if args.ClientOptions.TLSConfig != nil {
@@ -215,11 +225,18 @@ type NewSenderOptions struct {
 // NewSender creates a Sender, which allows you to send messages or schedule messages.
 func (client *Client) NewSender(queueOrTopic string, options *NewSenderOptions) (*Sender, error) {
 	id, cleanupOnClose := client.getCleanupForCloseable()
+
+	tracer := disttrace.NewTracer(client.traceProvider, disttrace.TracerArgs{
+		PeerName:     client.namespace.Hostname(),
+		QueueOrTopic: queueOrTopic,
+	})
+
 	sender, err := newSender(newSenderArgs{
 		ns:             client.namespace,
 		queueOrTopic:   queueOrTopic,
 		cleanupOnClose: cleanupOnClose,
 		retryOptions:   client.retryOptions,
+		tracer:         tracer,
 	})
 
 	if err != nil {

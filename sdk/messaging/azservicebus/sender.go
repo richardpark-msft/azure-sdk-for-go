@@ -10,6 +10,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/disttrace"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
 	"github.com/Azure/go-amqp"
 )
@@ -21,6 +22,7 @@ type (
 		cleanupOnClose func()
 		links          internal.AMQPLinks
 		retryOptions   RetryOptions
+		tracer         disttrace.Tracer
 	}
 )
 
@@ -66,7 +68,12 @@ type SendMessageOptions struct {
 //   - [ErrMessageTooLarge] if the message is larger than the maximum allowed link size.
 //   - An [*azservicebus.Error] type if the failure is actionable.
 func (s *Sender) SendMessage(ctx context.Context, message *Message, options *SendMessageOptions) error {
-	return s.sendMessage(ctx, message)
+	ctx, span := s.tracer.StartSendingSpan(ctx, 1)
+	defer span.End()
+
+	err := s.sendMessage(ctx, message)
+
+	return disttrace.SetSpanStatus(span, err, "send")
 }
 
 // SendAMQPAnnotatedMessageOptions contains optional parameters for the SendAMQPAnnotatedMessage function.
@@ -93,11 +100,15 @@ type SendMessageBatchOptions struct {
 // Message batches can be created using `Sender.NewMessageBatch`.
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (s *Sender) SendMessageBatch(ctx context.Context, batch *MessageBatch, options *SendMessageBatchOptions) error {
+	ctx, span := s.tracer.StartSendingSpan(ctx, int(batch.NumMessages()))
+	defer span.End()
+
 	err := s.links.Retry(ctx, EventSender, "SendMessageBatch", func(ctx context.Context, lwid *internal.LinksWithID, args *utils.RetryFnArgs) error {
 		return lwid.Sender.Send(ctx, batch.toAMQPMessage(), nil)
 	}, RetryOptions(s.retryOptions))
 
-	return internal.TransformError(err)
+	err = internal.TransformError(err)
+	return disttrace.SetSpanStatus(span, err, "send message batch")
 }
 
 // ScheduleMessagesOptions contains optional parameters for the ScheduleMessages function.
@@ -204,6 +215,7 @@ type newSenderArgs struct {
 	queueOrTopic   string
 	cleanupOnClose func()
 	retryOptions   RetryOptions
+	tracer         disttrace.Tracer
 }
 
 func newSender(args newSenderArgs) (*Sender, error) {
@@ -215,6 +227,7 @@ func newSender(args newSenderArgs) (*Sender, error) {
 		queueOrTopic:   args.queueOrTopic,
 		cleanupOnClose: args.cleanupOnClose,
 		retryOptions:   args.retryOptions,
+		tracer:         args.tracer,
 	}
 
 	sender.links = internal.NewAMQPLinks(internal.NewAMQPLinksArgs{

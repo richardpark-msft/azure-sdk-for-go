@@ -19,13 +19,14 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/auth"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/conn"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/constants"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/exported"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sbauth"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
 	"github.com/Azure/go-amqp"
 )
 
-var rootUserAgent = telemetry.Format("azservicebus", Version)
+var rootUserAgent = telemetry.Format("azservicebus", constants.Version)
 
 type (
 	// Namespace is an abstraction over an amqp.Client, allowing us to hold onto a single
@@ -82,6 +83,8 @@ type NamespaceForAMQPLinks interface {
 	Recover(ctx context.Context, clientRevision uint64) (bool, error)
 
 	Close(permanently bool) error
+
+	Hostname() string
 }
 
 // NamespaceWithConnectionString configures a namespace with the information provided in a Service Bus connection string
@@ -176,7 +179,7 @@ func (ns *Namespace) newClientImpl(ctx context.Context) (amqpwrap.AMQPClient, er
 		MaxSessions: 65535,
 		Properties: map[string]any{
 			"product":    "MSGolangClient",
-			"version":    Version,
+			"version":    constants.Version,
 			"platform":   runtime.GOOS,
 			"framework":  runtime.Version(),
 			"user-agent": ns.getUserAgent(),
@@ -484,6 +487,10 @@ func (ns *Namespace) updateClientWithoutLock(ctx context.Context) (amqpwrap.AMQP
 	log.Writef(exported.EventConn, "Client created, new rev: %d, took %dms", ns.connID, time.Since(connStart)/time.Millisecond)
 
 	return ns.client, ns.connID, err
+}
+
+func (ns *Namespace) Hostname() string {
+	return ns.FQDN
 }
 
 func (ns *Namespace) getWSSHostURI() string {

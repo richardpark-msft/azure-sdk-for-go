@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/atom"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/constants"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/exported"
 )
 
@@ -47,7 +47,7 @@ func NewClientFromConnectionString(connectionString string, options *ClientOptio
 		clientOptions = &options.ClientOptions
 	}
 
-	em, err := atom.NewEntityManagerWithConnectionString(connectionString, internal.Version, clientOptions)
+	em, err := atom.NewEntityManagerWithConnectionString(connectionString, constants.Version, clientOptions)
 
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func NewClient(fullyQualifiedNamespace string, tokenCredential azcore.TokenCrede
 		clientOptions = &options.ClientOptions
 	}
 
-	em, err := atom.NewEntityManager(fullyQualifiedNamespace, tokenCredential, internal.Version, clientOptions)
+	em, err := atom.NewEntityManager(fullyQualifiedNamespace, tokenCredential, constants.Version, clientOptions)
 
 	if err != nil {
 		return nil, err
