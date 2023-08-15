@@ -230,6 +230,9 @@ type ReceiveDeferredMessagesOptions struct {
 // ReceiveDeferredMessages receives messages that were deferred using `Receiver.DeferMessage`.
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (r *Receiver) ReceiveDeferredMessages(ctx context.Context, sequenceNumbers []int64, options *ReceiveDeferredMessagesOptions) ([]*ReceivedMessage, error) {
+	ctx, span := r.tracer.StartReceiveDeferredSpan(ctx)
+	defer span.End()
+
 	var receivedMessages []*ReceivedMessage
 
 	err := r.amqpLinks.Retry(ctx, EventReceiver, "receiveDeferredMessages", func(ctx context.Context, lwid *internal.LinksWithID, args *utils.RetryFnArgs) error {
@@ -249,7 +252,8 @@ func (r *Receiver) ReceiveDeferredMessages(ctx context.Context, sequenceNumbers 
 		return nil
 	}, r.retryOptions)
 
-	return receivedMessages, internal.TransformError(err)
+	err = internal.TransformError(err)
+	return receivedMessages, disttrace.SetSpanStatus(span, err, "receive deferred")
 }
 
 // PeekMessagesOptions contains options for the `Receiver.PeekMessages`
@@ -316,6 +320,9 @@ type RenewMessageLockOptions struct {
 // RenewMessageLock renews the lock on a message, updating the `LockedUntil` field on `msg`.
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (r *Receiver) RenewMessageLock(ctx context.Context, msg *ReceivedMessage, options *RenewMessageLockOptions) error {
+	ctx, span := r.tracer.StartRenewLockSpan(ctx)
+	defer span.End()
+
 	err := r.amqpLinks.Retry(ctx, EventReceiver, "renewMessageLock", func(ctx context.Context, linksWithVersion *internal.LinksWithID, args *utils.RetryFnArgs) error {
 		newExpirationTime, err := internal.RenewLocks(ctx, linksWithVersion.RPC, msg.RawAMQPMessage.linkName, []amqp.UUID{
 			(amqp.UUID)(msg.LockToken),
@@ -329,7 +336,8 @@ func (r *Receiver) RenewMessageLock(ctx context.Context, msg *ReceivedMessage, o
 		return nil
 	}, r.retryOptions)
 
-	return internal.TransformError(err)
+	err = internal.TransformError(err)
+	return disttrace.SetSpanStatus(span, err, "renew message lock")
 }
 
 // Close permanently closes the receiver.
@@ -346,7 +354,11 @@ func (r *Receiver) Close(ctx context.Context) error {
 // This function can only be used when the Receiver has been opened with ReceiveModePeekLock.
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (r *Receiver) CompleteMessage(ctx context.Context, message *ReceivedMessage, options *CompleteMessageOptions) error {
-	return r.settler.CompleteMessage(ctx, message, options)
+	ctx, span := r.tracer.StartSettleSpan(ctx, disttrace.SettleOperationComplete)
+	defer span.End()
+
+	err := r.settler.CompleteMessage(ctx, message, options)
+	return disttrace.SetSpanStatus(span, err, "complete message")
 }
 
 // AbandonMessage will cause a message to be  available again from the queue or subscription.
@@ -355,7 +367,11 @@ func (r *Receiver) CompleteMessage(ctx context.Context, message *ReceivedMessage
 // This function can only be used when the Receiver has been opened with `ReceiveModePeekLock`.
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (r *Receiver) AbandonMessage(ctx context.Context, message *ReceivedMessage, options *AbandonMessageOptions) error {
-	return r.settler.AbandonMessage(ctx, message, options)
+	ctx, span := r.tracer.StartSettleSpan(ctx, disttrace.SettleOperationAbandon)
+	defer span.End()
+
+	err := r.settler.AbandonMessage(ctx, message, options)
+	return disttrace.SetSpanStatus(span, err, "abandon message")
 }
 
 // DeferMessage will cause a message to be deferred. Deferred messages can be received using
@@ -363,7 +379,11 @@ func (r *Receiver) AbandonMessage(ctx context.Context, message *ReceivedMessage,
 // This function can only be used when the Receiver has been opened with `ReceiveModePeekLock`.
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (r *Receiver) DeferMessage(ctx context.Context, message *ReceivedMessage, options *DeferMessageOptions) error {
-	return r.settler.DeferMessage(ctx, message, options)
+	ctx, span := r.tracer.StartSettleSpan(ctx, disttrace.SettleOperationDefer)
+	defer span.End()
+
+	err := r.settler.DeferMessage(ctx, message, options)
+	return disttrace.SetSpanStatus(span, err, "defer message")
 }
 
 // DeadLetterMessage settles a message by moving it to the dead letter queue for a
@@ -372,7 +392,11 @@ func (r *Receiver) DeferMessage(ctx context.Context, message *ReceivedMessage, o
 // This function can only be used when the Receiver has been opened with `ReceiveModePeekLock`.
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (r *Receiver) DeadLetterMessage(ctx context.Context, message *ReceivedMessage, options *DeadLetterOptions) error {
-	return r.settler.DeadLetterMessage(ctx, message, options)
+	ctx, span := r.tracer.StartSettleSpan(ctx, disttrace.SettleOperationDeadLetter)
+	defer span.End()
+
+	err := r.settler.DeadLetterMessage(ctx, message, options)
+	return disttrace.SetSpanStatus(span, err, "dead letter message")
 }
 
 func (r *Receiver) receiveMessagesImpl(ctx context.Context, maxMessages int, options *ReceiveMessagesOptions) ([]*ReceivedMessage, error) {

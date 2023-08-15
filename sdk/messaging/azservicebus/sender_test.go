@@ -57,7 +57,11 @@ func Test_Sender_MessageID(t *testing.T) {
 }
 
 func Test_Sender_SendBatchOfTwo(t *testing.T) {
-	client, cleanup, queueName := setupLiveTest(t, nil)
+	client, cleanup, queueName := setupLiveTest(t, &liveTestOptions{
+		ClientOptions: &ClientOptions{
+			TracingProvider: test.NewProviderForTests(t),
+		},
+	})
 	defer cleanup()
 
 	ctx := context.Background()
