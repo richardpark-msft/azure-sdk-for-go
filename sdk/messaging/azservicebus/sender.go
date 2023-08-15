@@ -235,6 +235,7 @@ func newSender(args newSenderArgs) (*Sender, error) {
 		EntityPath:          args.queueOrTopic,
 		CreateLinkFunc:      sender.createSenderLink,
 		GetRecoveryKindFunc: internal.GetRecoveryKind,
+		Tracer:              args.tracer,
 	})
 
 	return sender, nil

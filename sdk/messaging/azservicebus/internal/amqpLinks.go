@@ -11,9 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/tracing"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/disttrace"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/exported"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
 )
@@ -115,6 +117,7 @@ type AMQPLinksImpl struct {
 	ns NamespaceForAMQPLinks
 
 	utils.Logger
+	Tracer disttrace.Tracer
 }
 
 // CreateLinkFunc creates the links, using the given session. Typically you'll only create either an
@@ -126,6 +129,7 @@ type NewAMQPLinksArgs struct {
 	EntityPath          string
 	CreateLinkFunc      CreateLinkFunc
 	GetRecoveryKindFunc func(err error) RecoveryKind
+	Tracer              disttrace.Tracer
 }
 
 // NewAMQPLinks creates a session, starts the claim refresher and creates an associated
@@ -140,6 +144,7 @@ func NewAMQPLinks(args NewAMQPLinksArgs) AMQPLinks {
 		getRecoveryKindFunc: args.GetRecoveryKindFunc,
 		ns:                  args.NS,
 		Logger:              utils.NewLogger(),
+		Tracer:              args.Tracer,
 	}
 
 	return l
@@ -432,13 +437,18 @@ func (links *AMQPLinksImpl) CloseIfNeeded(ctx context.Context, err error) Recove
 
 // initWithoutLocking will create a new link, unconditionally.
 func (links *AMQPLinksImpl) initWithoutLocking(ctx context.Context) error {
+	ctx, span := links.Tracer.StartSBSpan(ctx, disttrace.SpanNewLinks, &tracing.SpanOptions{
+		Kind: tracing.SpanKindClient,
+	})
+	defer span.End()
+
 	tmpCancelAuthRefreshLink, _, err := links.ns.NegotiateClaim(ctx, links.entityPath)
 
 	if err != nil {
 		if err := links.closeWithoutLocking(ctx, false); err != nil {
 			links.Writef(exported.EventConn, "Failure during link cleanup after negotiateClaim: %s", err.Error())
 		}
-		return err
+		return disttrace.SetSpanStatus(span, err, "negotiate claim (main)")
 	}
 
 	links.cancelAuthRefreshLink = tmpCancelAuthRefreshLink
@@ -449,7 +459,7 @@ func (links *AMQPLinksImpl) initWithoutLocking(ctx context.Context) error {
 		if err := links.closeWithoutLocking(ctx, false); err != nil {
 			links.Writef(exported.EventConn, "Failure during link cleanup after negotiate claim for mgmt link: %s", err.Error())
 		}
-		return err
+		return disttrace.SetSpanStatus(span, err, "negotiate claim (mgmt)")
 	}
 
 	links.cancelAuthRefreshMgmtLink = tmpCancelAuthRefreshMgmtLink
@@ -460,7 +470,7 @@ func (links *AMQPLinksImpl) initWithoutLocking(ctx context.Context) error {
 		if err := links.closeWithoutLocking(ctx, false); err != nil {
 			links.Writef(exported.EventConn, "Failure during link cleanup after creating AMQP session: %s", err.Error())
 		}
-		return err
+		return disttrace.SetSpanStatus(span, err, "new amqp session")
 	}
 
 	links.session = tmpSession
@@ -472,11 +482,11 @@ func (links *AMQPLinksImpl) initWithoutLocking(ctx context.Context) error {
 		if err := links.closeWithoutLocking(ctx, false); err != nil {
 			links.Writef(exported.EventConn, "Failure during link cleanup after creating link: %s", err.Error())
 		}
-		return err
+		return disttrace.SetSpanStatus(span, err, "create sender/receiver")
 	}
 
 	if tmpReceiver == nil && tmpSender == nil {
-		panic("Both tmpReceiver and tmpSender are nil")
+		return disttrace.SetSpanStatus(span, errors.New("both tmpReceiver and tmpSender are nil"), "internal error (sender and receiver)")
 	}
 
 	links.Sender, links.Receiver = tmpSender, tmpReceiver
@@ -487,7 +497,7 @@ func (links *AMQPLinksImpl) initWithoutLocking(ctx context.Context) error {
 		if err := links.closeWithoutLocking(ctx, false); err != nil {
 			links.Writef(exported.EventConn, "Failure during link cleanup after creating mgmt client: %s", err.Error())
 		}
-		return err
+		return disttrace.SetSpanStatus(span, err, "new rpc link (mgmt)")
 	}
 
 	links.RPCLink = tmpRPCLink
@@ -502,7 +512,7 @@ func (links *AMQPLinksImpl) initWithoutLocking(ctx context.Context) error {
 	}
 
 	links.Writef(exported.EventConn, "Links created")
-	return nil
+	return disttrace.SetSpanStatus(span, nil, "")
 }
 
 // closeWithoutLocking closes the links ($management and normal entity links) and cancels the

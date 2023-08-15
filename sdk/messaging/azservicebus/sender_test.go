@@ -23,16 +23,32 @@ var stdoutTracingProvider = aztracing.NewProvider(func(name, version string) azt
 			panic("Every span created in this library should set options")
 		}
 
-		attrs := ""
+		attrs := options.Attributes
+		status := aztracing.SpanStatusUnset
+		statusDesc := ""
 
-		if options != nil {
-			for _, attr := range options.Attributes {
-				attrs += fmt.Sprintf("\n  %q=%v", attr.Key, attr.Value)
-			}
-		}
+		return ctx, aztracing.NewSpan(aztracing.SpanImpl{
+			SetAttributes: func(a ...aztracing.Attribute) {
+				// TODO: this isn't strictly correct - we should overwrite other attributes.
+				// It's fine for this kind of rough debugging.
+				attrs = append(attrs, a...)
+			},
+			SetStatus: func(ss aztracing.SpanStatus, s string) {
+				status = ss
+				statusDesc = s
+			},
+			End: func() {
+				text := ""
 
-		fmt.Printf("\n==> TRACE: spanName: %q, spanKind: %d, attrs: %s\n===> END TRACE\n", spanName, options.Kind, attrs)
-		return ctx, aztracing.Span{}
+				if options != nil {
+					for _, attr := range attrs {
+						text += fmt.Sprintf("\n  %q=%v", attr.Key, attr.Value)
+					}
+				}
+
+				fmt.Printf("\n===> TRACE spanName: %q, spanKind: %d, status: %d, statusDesc: %q, attrs: %s\n===> END TRACE\n", spanName, options.Kind, status, statusDesc, text)
+			},
+		})
 	}, &aztracing.TracerOptions{})
 }, nil)
 

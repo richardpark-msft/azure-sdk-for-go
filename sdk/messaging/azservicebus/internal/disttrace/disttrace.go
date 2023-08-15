@@ -18,6 +18,7 @@ const SpanOperation = "messaging.operation"
 // TODO: is this the right way to report a connection event?
 const SpanNewConnection = "Microsoft.ServiceBus.NewConnection"
 const SpanNewSession = "Microsoft.ServiceBus.NewSession"
+const SpanNewLinks = "Microsoft.ServiceBus.NewLinks"
 
 type Tracer struct {
 	aztracing.Tracer
@@ -73,7 +74,7 @@ func (sbt Tracer) StartSBSpan(ctx context.Context, spanName string, options *azt
 	}
 
 	opts.Attributes = append(opts.Attributes, sbt.baseAttrs...)
-	return sbt.Start(ctx, spanName, options)
+	return sbt.Start(ctx, spanName, &opts)
 }
 
 func (sbt Tracer) StartReceivingSpan(ctx context.Context) (context.Context, aztracing.Span) {
