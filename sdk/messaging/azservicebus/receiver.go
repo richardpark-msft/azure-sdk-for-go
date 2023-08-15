@@ -13,6 +13,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/amqpwrap"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/disttrace"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/exported"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/utils"
 	"github.com/Azure/go-amqp"
@@ -56,6 +57,7 @@ type Receiver struct {
 	receiving                bool
 	retryOptions             RetryOptions
 	settler                  settler
+	tracer                   disttrace.Tracer
 }
 
 // ReceiverOptions contains options for the `Client.NewReceiverForQueue` or `Client.NewReceiverForSubscription`
@@ -117,6 +119,7 @@ type newReceiverArgs struct {
 	getRecoveryKindFunc func(err error) internal.RecoveryKind
 	newLinkFn           func(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error)
 	retryOptions        RetryOptions
+	tracer              disttrace.Tracer
 }
 
 var emptyCancelFn = func() string {
@@ -135,6 +138,7 @@ func newReceiver(args newReceiverArgs, options *ReceiverOptions) (*Receiver, err
 		lastPeekedSequenceNumber: 0,
 		maxAllowedCredits:        defaultLinkRxBuffer,
 		retryOptions:             args.retryOptions,
+		tracer:                   args.tracer,
 	}
 
 	receiver.cancelReleaser.Store(emptyCancelFn)
@@ -161,6 +165,7 @@ func newReceiver(args newReceiverArgs, options *ReceiverOptions) (*Receiver, err
 		EntityPath:          receiver.entityPath,
 		CreateLinkFunc:      newLinkFn,
 		GetRecoveryKindFunc: args.getRecoveryKindFunc,
+		Tracer:              args.tracer,
 	})
 
 	// 'nil' settler handles returning an error message for receiveAndDelete links.
@@ -189,6 +194,10 @@ type ReceiveMessagesOptions struct {
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options *ReceiveMessagesOptions) ([]*ReceivedMessage, error) {
 	r.mu.Lock()
+
+	ctx, span := r.tracer.StartReceivingSpan(ctx)
+	defer span.End()
+
 	isReceiving := r.receiving
 
 	if !isReceiving {
@@ -207,7 +216,10 @@ func (r *Receiver) ReceiveMessages(ctx context.Context, maxMessages int, options
 	}
 
 	messages, err := r.receiveMessagesImpl(ctx, maxMessages, options)
-	return messages, internal.TransformError(err)
+	err = internal.TransformError(err)
+
+	disttrace.SetMessageCountAttr(span, len(messages))
+	return messages, disttrace.SetSpanStatus(span, err, "receive")
 }
 
 // ReceiveDeferredMessagesOptions contains optional parameters for the ReceiveDeferredMessages function.

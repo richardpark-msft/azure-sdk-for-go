@@ -182,12 +182,19 @@ func newClientImpl(creds clientCreds, args clientImplArgs) (*Client, error) {
 // NewReceiverForQueue creates a Receiver for a queue. A receiver allows you to receive messages.
 func (client *Client) NewReceiverForQueue(queueName string, options *ReceiverOptions) (*Receiver, error) {
 	id, cleanupOnClose := client.getCleanupForCloseable()
+
+	tracer := disttrace.NewTracer(client.traceProvider, disttrace.TracerArgs{
+		PeerName:     client.namespace.Hostname(),
+		QueueOrTopic: queueName,
+	})
+
 	receiver, err := newReceiver(newReceiverArgs{
 		cleanupOnClose:      cleanupOnClose,
 		ns:                  client.namespace,
 		entity:              entity{Queue: queueName},
 		getRecoveryKindFunc: internal.GetRecoveryKind,
 		retryOptions:        client.retryOptions,
+		tracer:              tracer,
 	}, options)
 
 	if err != nil {
@@ -201,12 +208,23 @@ func (client *Client) NewReceiverForQueue(queueName string, options *ReceiverOpt
 // NewReceiverForSubscription creates a Receiver for a subscription. A receiver allows you to receive messages.
 func (client *Client) NewReceiverForSubscription(topicName string, subscriptionName string, options *ReceiverOptions) (*Receiver, error) {
 	id, cleanupOnClose := client.getCleanupForCloseable()
+
+	tracer := disttrace.NewTracer(client.traceProvider, disttrace.TracerArgs{
+		PeerName: client.namespace.Hostname(),
+
+		// From here: https://gist.github.com/lmolkova/e4215c0f44a49ef824983382762e6b92#receiving-messages
+		// messaging.destination.name attribute: ServiceBus/EventHub entity name (without partitionId or subscription id)
+		// We're explicitly _not_ supposed to include the subscription.
+		QueueOrTopic: topicName,
+	})
+
 	receiver, err := newReceiver(newReceiverArgs{
 		cleanupOnClose:      cleanupOnClose,
 		ns:                  client.namespace,
 		entity:              entity{Topic: topicName, Subscription: subscriptionName},
 		getRecoveryKindFunc: internal.GetRecoveryKind,
 		retryOptions:        client.retryOptions,
+		tracer:              tracer,
 	}, options)
 
 	if err != nil {
