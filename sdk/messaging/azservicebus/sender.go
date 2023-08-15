@@ -68,12 +68,7 @@ type SendMessageOptions struct {
 //   - [ErrMessageTooLarge] if the message is larger than the maximum allowed link size.
 //   - An [*azservicebus.Error] type if the failure is actionable.
 func (s *Sender) SendMessage(ctx context.Context, message *Message, options *SendMessageOptions) error {
-	ctx, span := s.tracer.StartSendingSpan(ctx, 1)
-	defer span.End()
-
-	err := s.sendMessage(ctx, message)
-
-	return disttrace.SetSpanStatus(span, err, "send")
+	return s.sendMessage(ctx, message)
 }
 
 // SendAMQPAnnotatedMessageOptions contains optional parameters for the SendAMQPAnnotatedMessage function.
@@ -183,15 +178,19 @@ func (s *Sender) Close(ctx context.Context) error {
 }
 
 func (s *Sender) sendMessage(ctx context.Context, message amqpCompatibleMessage) error {
+	ctx, span := s.tracer.StartSendingSpan(ctx, 1)
+	defer span.End()
+
 	err := s.links.Retry(ctx, EventSender, "SendMessage", func(ctx context.Context, lwid *internal.LinksWithID, args *utils.RetryFnArgs) error {
 		return lwid.Sender.Send(ctx, message.toAMQPMessage(), nil)
 	}, RetryOptions(s.retryOptions))
 
 	if amqpErr := (*amqp.Error)(nil); errors.As(err, &amqpErr) && amqpErr.Condition == amqp.ErrCondMessageSizeExceeded {
-		return ErrMessageTooLarge
+		return disttrace.SetSpanStatus(span, ErrMessageTooLarge, "send")
 	}
 
-	return internal.TransformError(err)
+	err = internal.TransformError(err)
+	return disttrace.SetSpanStatus(span, err, "send")
 }
 
 func (sender *Sender) createSenderLink(ctx context.Context, session amqpwrap.AMQPSession) (amqpwrap.AMQPSenderCloser, amqpwrap.AMQPReceiverCloser, error) {
