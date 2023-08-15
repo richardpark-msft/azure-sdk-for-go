@@ -270,6 +270,9 @@ type PeekMessagesOptions struct {
 // will not work with them.
 // If the operation fails it can return an *azservicebus.Error type if the failure is actionable.
 func (r *Receiver) PeekMessages(ctx context.Context, maxMessageCount int, options *PeekMessagesOptions) ([]*ReceivedMessage, error) {
+	ctx, span := r.tracer.StartPeekSpan(ctx)
+	defer span.End()
+
 	var receivedMessages []*ReceivedMessage
 
 	err := r.amqpLinks.Retry(ctx, EventReceiver, "peekMessages", func(ctx context.Context, links *internal.LinksWithID, args *utils.RetryFnArgs) error {
@@ -301,7 +304,8 @@ func (r *Receiver) PeekMessages(ctx context.Context, maxMessageCount int, option
 		return nil
 	}, r.retryOptions)
 
-	return receivedMessages, internal.TransformError(err)
+	err = internal.TransformError(err)
+	return receivedMessages, disttrace.SetSpanStatus(span, err, "peek")
 }
 
 // RenewMessageLockOptions contains optional parameters for the RenewMessageLock function.

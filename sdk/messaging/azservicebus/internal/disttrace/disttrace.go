@@ -87,6 +87,15 @@ func (sbt Tracer) StartReceivingSpan(ctx context.Context) (context.Context, aztr
 	})
 }
 
+func (sbt Tracer) StartPeekSpan(ctx context.Context) (context.Context, aztracing.Span) {
+	return sbt.Start(ctx, "ServiceBus.peek", &aztracing.SpanOptions{
+		Kind: aztracing.SpanKindClient,
+		Attributes: append(sbt.baseAttrs,
+			aztracing.Attribute{Key: SpanOperation, Value: "peek"},
+		),
+	})
+}
+
 func (sbt Tracer) StartSendingSpan(ctx context.Context, count int) (context.Context, aztracing.Span) {
 	// https://gist.github.com/lmolkova/e4215c0f44a49ef824983382762e6b92#sending-messages
 	return sbt.Start(ctx, "ServiceBus.send", &aztracing.SpanOptions{
