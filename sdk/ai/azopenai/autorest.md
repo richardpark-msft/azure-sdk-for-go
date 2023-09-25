@@ -247,6 +247,7 @@ directive:
         /(type Client struct[^}]+})/s, 
         "type Client struct {\ninternal *azcore.Client; clientData;\n}")
 
+  # Cleanup all the error types
   - from: 
     - models_serde.go
     - models.go
@@ -256,7 +257,8 @@ directive:
         // InnerError is actually a recursive type, no need for this innererrorinnererror type
         .replace(/\/\/ AzureCoreFoundationsInnerErrorInnererror.+?\n}/s, "")
         // also, remove its marshalling functions
-        .replace(/\/\/ (Unmarshal|Marshal)JSON implements[^\n]+?AzureCoreFoundationsInnerErrorInnererror.+?\n}/sg, "")
+        .replace(/\/\/ (Unmarshal|Marshal)JSON implements[^\n]+?for type AzureCoreFoundationsInnerErrorInnererror.+?\n}/sg, "")
+        .replace(/\/\/ (Unmarshal|Marshal)JSON implements[^\n]+?for type AzureCoreFoundationsErrorInnererror.+?\n}/sg, "")
 
         // Remove any references to the type and replace them with InnerError.
         .replace(/Innererror \*(AzureCoreFoundationsInnerErrorInnererror|AzureCoreFoundationsErrorInnererror)/g, "InnerError *InnerError")
@@ -265,7 +267,7 @@ directive:
         .replace(/(a|c).Innererror/g, '$1.InnerError')
 
         // We have two "inner error" types that are identical (ErrorInnerError and InnerError). Let's eliminate the one that's not actually directly referenced.
-        .replace(/\/\/azureCoreFoundationsInnerError.+?\n}/s, "")
+        .replace(/\/\/ AzureCoreFoundationsErrorInnererror.+?\n}/s, "")
         
         //
         // Fix the AzureCoreFoundation naming to match our style.

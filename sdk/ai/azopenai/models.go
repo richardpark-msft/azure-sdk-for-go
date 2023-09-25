@@ -298,16 +298,6 @@ type Error struct {
 	Target *string
 }
 
-// ErrorInnererror - An object containing more specific information than the current object about the
-// error.
-type ErrorInnererror struct {
-	// One of a server-defined set of error codes.
-	Code *string
-
-	// Inner error.
-	InnerError *InnerError
-}
-
 // ErrorResponse - A response containing error details.
 type ErrorResponse struct {
 	// REQUIRED; The error object.
