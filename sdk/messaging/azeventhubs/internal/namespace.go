@@ -190,7 +190,8 @@ func (ns *Namespace) newClientImpl(ctx context.Context, connID uint64) (amqpwrap
 		return &amqpwrap.AMQPClientWrapper{Inner: client, ConnID: connID}, err
 	}
 
-	client, err := amqp.Dial(ctx, ns.getAMQPHostURI(), &connOptions)
+	amqpHostURI := ns.getAMQPHostURI()
+	client, err := amqp.Dial(ctx, amqpHostURI, &connOptions)
 	return &amqpwrap.AMQPClientWrapper{Inner: client, ConnID: connID}, err
 }
 
@@ -462,7 +463,7 @@ func (ns *Namespace) getWSSHostURI() string {
 }
 
 func (ns *Namespace) getAMQPHostURI() string {
-	return fmt.Sprintf("amqps://%s/", ns.FQDN)
+	return fmt.Sprintf("amqp://%s/", ns.FQDN)
 }
 
 func (ns *Namespace) GetHTTPSHostURI() string {
