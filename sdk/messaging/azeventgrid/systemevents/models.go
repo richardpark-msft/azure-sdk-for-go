@@ -244,6 +244,22 @@ type APIManagementUserUpdatedEventData struct {
 	ResourceURI *string
 }
 
+// AcknowledgeOptions - Array of lock tokens for the corresponding received Cloud Events to be acknowledged.
+type AcknowledgeOptions struct {
+	// REQUIRED; Array of lock tokens.
+	LockTokens []string
+}
+
+// AcknowledgeResult - The result of the Acknowledge operation.
+type AcknowledgeResult struct {
+	// REQUIRED; Array of FailedLockToken for failed cloud events. Each FailedLockToken includes the lock token along with the
+	// related error information (namely, the error code and description).
+	FailedLockTokens []FailedLockToken
+
+	// REQUIRED; Array of lock tokens for the successfully acknowledged cloud events.
+	SucceededLockTokens []string
+}
+
 // AcsChatEventBaseProperties - Schema of common properties of all chat events
 type AcsChatEventBaseProperties struct {
 	// The communication identifier of the target user
@@ -669,9 +685,6 @@ type AcsChatThreadCreatedWithUserEventData struct {
 	// The communication identifier of the user who created the thread
 	CreatedByCommunicationIdentifier *CommunicationIdentifierModel
 
-	// The thread metadata
-	Metadata map[string]*string
-
 	// The list of properties of participants who are part of the thread
 	Participants []AcsChatThreadParticipantProperties
 
@@ -751,9 +764,6 @@ type AcsChatThreadParticipantProperties struct {
 	// The name of the user
 	DisplayName *string
 
-	// The metadata of the user
-	Metadata map[string]*string
-
 	// The communication identifier of the user
 	ParticipantCommunicationIdentifier *CommunicationIdentifierModel
 }
@@ -770,11 +780,8 @@ type AcsChatThreadPropertiesUpdatedEventData struct {
 	// The communication identifier of the user who updated the thread properties
 	EditedByCommunicationIdentifier *CommunicationIdentifierModel
 
-	// The thread metadata
-	Metadata map[string]*string
-
 	// The updated thread properties
-	Properties map[string]any
+	Properties map[string]*string
 
 	// The chat thread id
 	ThreadID *string
@@ -798,11 +805,8 @@ type AcsChatThreadPropertiesUpdatedPerUserEventData struct {
 	// The communication identifier of the user who updated the thread properties
 	EditedByCommunicationIdentifier *CommunicationIdentifierModel
 
-	// The thread metadata
-	Metadata map[string]*string
-
 	// The updated thread properties
-	Properties map[string]any
+	Properties map[string]*string
 
 	// The communication identifier of the target user
 	RecipientCommunicationIdentifier *CommunicationIdentifierModel
@@ -846,7 +850,7 @@ type AcsChatThreadWithUserDeletedEventData struct {
 // event.
 type AcsEmailDeliveryReportReceivedEventData struct {
 	// The time at which the email delivery report received timestamp
-	DeliveryAttemptTimestamp *time.Time
+	DeliveryAttemptTimeStamp *time.Time
 
 	// Detailed information about the status if any
 	DeliveryStatusDetails *AcsEmailDeliveryReportStatusDetails
@@ -873,11 +877,11 @@ type AcsEmailDeliveryReportStatusDetails struct {
 // AcsEmailEngagementTrackingReportReceivedEventData - Schema of the Data property of an Event for a Microsoft.Communication.EmailEngagementTrackingReportReceived
 // event.
 type AcsEmailEngagementTrackingReportReceivedEventData struct {
-	// The type of engagement user have with email
-	Engagement *AcsUserEngagement
-
 	// The context of the type of engagement user had with email
 	EngagementContext *string
+
+	// The type of engagement user have with email
+	EngagementType *AcsUserEngagement
 
 	// The Id of the email that has been sent
 	MessageID *string
@@ -889,7 +893,7 @@ type AcsEmailEngagementTrackingReportReceivedEventData struct {
 	Sender *string
 
 	// The time at which the user interacted with the email
-	UserActionTimestamp *time.Time
+	UserActionTimeStamp *time.Time
 
 	// The user agent interacting with the email
 	UserAgent *string
@@ -917,7 +921,7 @@ type AcsIncomingCallEventData struct {
 	CustomContext *AcsIncomingCallCustomContext
 
 	// The communication identifier of the user who initiated the call.
-	FromCommunicationIdentifier *CommunicationIdentifierModel
+	From *CommunicationIdentifierModel
 
 	// Signed incoming call context.
 	IncomingCallContext *string
@@ -926,7 +930,7 @@ type AcsIncomingCallEventData struct {
 	ServerCallID *string
 
 	// The communication identifier of the target user.
-	ToCommunicationIdentifier *CommunicationIdentifierModel
+	To *CommunicationIdentifierModel
 }
 
 // AcsRecordingChunkInfoProperties - Schema for all properties of Recording Chunk Information.
@@ -1683,7 +1687,7 @@ type AcsRouterWorkerSelector struct {
 	State *AcsRouterWorkerSelectorState
 
 	// Router Job Worker Selector Time to Live in Seconds
-	TimeToLive *float32
+	TTLSeconds *string
 }
 
 // AcsSmsDeliveryAttemptProperties - Schema for details of a delivery attempt
@@ -1798,38 +1802,38 @@ type AppConfigurationKeyValueModifiedEventData struct {
 // AppConfigurationSnapshotCreatedEventData - Schema of the Data property of an Event for a Microsoft.AppConfiguration.SnapshotCreated
 // event.
 type AppConfigurationSnapshotCreatedEventData struct {
-	// The etag representing the new state of the snapshot.
+	// REQUIRED; The etag representing the new state of the snapshot.
 	Etag *string
 
-	// The name of the snapshot.
+	// REQUIRED; The name of the snapshot.
 	Name *string
 
-	// The sync token representing the server state after the event.
+	// REQUIRED; The sync token representing the server state after the event.
 	SyncToken *string
 }
 
 // AppConfigurationSnapshotEventData - Schema of common properties of snapshot events
 type AppConfigurationSnapshotEventData struct {
-	// The etag representing the new state of the snapshot.
+	// REQUIRED; The etag representing the new state of the snapshot.
 	Etag *string
 
-	// The name of the snapshot.
+	// REQUIRED; The name of the snapshot.
 	Name *string
 
-	// The sync token representing the server state after the event.
+	// REQUIRED; The sync token representing the server state after the event.
 	SyncToken *string
 }
 
 // AppConfigurationSnapshotModifiedEventData - Schema of the Data property of an Event for a Microsoft.AppConfiguration.SnapshotModified
 // event.
 type AppConfigurationSnapshotModifiedEventData struct {
-	// The etag representing the new state of the snapshot.
+	// REQUIRED; The etag representing the new state of the snapshot.
 	Etag *string
 
-	// The name of the snapshot.
+	// REQUIRED; The name of the snapshot.
 	Name *string
 
-	// The sync token representing the server state after the event.
+	// REQUIRED; The sync token representing the server state after the event.
 	SyncToken *string
 }
 
@@ -1849,6 +1853,85 @@ type AppServicePlanEventTypeDetail struct {
 
 	// Asynchronous operation status of the operation on the app service plan.
 	Status *AsyncStatus
+}
+
+// AzureCoreFoundationsError - The error object.
+type AzureCoreFoundationsError struct {
+	// REQUIRED; One of a server-defined set of error codes.
+	Code *string
+
+	// REQUIRED; A human-readable representation of the error.
+	Message *string
+
+	// An array of details about specific errors that led to this reported error.
+	Details []AzureCoreFoundationsError
+
+	// An object containing more specific information than the current object about the error.
+	Innererror *AzureCoreFoundationsInnerError
+
+	// The target of the error.
+	Target *string
+}
+
+// AzureCoreFoundationsErrorResponse - A response containing error details.
+type AzureCoreFoundationsErrorResponse struct {
+	// REQUIRED; The error object.
+	Error *AzureCoreFoundationsError
+}
+
+// AzureCoreFoundationsInnerError - An object containing more specific information about the error. As per Microsoft One API
+// guidelines -
+// https://github.com/Microsoft/api-guidelines/blob/vNext/Guidelines.md#7102-error-condition-responses.
+type AzureCoreFoundationsInnerError struct {
+	// One of a server-defined set of error codes.
+	Code *string
+
+	// Inner error.
+	Innererror *AzureCoreFoundationsInnerError
+}
+
+// BrokerProperties - Properties of the Event Broker operation.
+type BrokerProperties struct {
+	// REQUIRED; The attempt count for delivering the event.
+	DeliveryCount *int32
+
+	// REQUIRED; The token of the lock on the event.
+	LockToken *string
+}
+
+// CloudEvent - Properties of an event published to an Azure Messaging EventGrid Namespace topic using the CloudEvent 1.0
+// Schema.
+type CloudEvent struct {
+	// REQUIRED; An identifier for the event. The combination of id and source must be unique for each distinct event.
+	ID *string
+
+	// REQUIRED; Identifies the context in which an event happened. The combination of id and source must be unique for each distinct
+	// event.
+	Source *string
+
+	// REQUIRED; The version of the CloudEvents specification which the event uses.
+	Specversion *string
+
+	// REQUIRED; Type of event related to the originating occurrence.
+	Type *string
+
+	// Event data specific to the event type.
+	Data any
+
+	// Event data specific to the event type, encoded as a base64 string.
+	DataBase64 []byte
+
+	// Content type of data value.
+	Datacontenttype *string
+
+	// Identifies the schema that data adheres to.
+	Dataschema *string
+
+	// This describes the subject of the event in the context of the event producer (identified by source).
+	Subject *string
+
+	// The time (in UTC) the event was generated, in RFC3339 format.
+	Time *time.Time
 }
 
 // CommunicationIdentifierModel - Identifies a participant in Azure Communication services. A participant is, for example,
@@ -2303,7 +2386,7 @@ type DeviceTwinInfo struct {
 	LastActivityTime *string
 
 	// Properties JSON element.
-	Properties *DeviceTwinInfoProperties
+	Properties *JSONProperties
 
 	// Whether the device twin is enabled or disabled.
 	Status *string
@@ -2317,27 +2400,7 @@ type DeviceTwinInfo struct {
 	// The thumbprint is a unique value for the x509 certificate, commonly used to find a particular certificate in a certificate
 	// store. The thumbprint is dynamically generated using the SHA1 algorithm, and
 	// does not physically exist in the certificate.
-	X509Thumbprint *DeviceTwinInfoX509Thumbprint
-}
-
-// DeviceTwinInfoProperties - Properties JSON element.
-type DeviceTwinInfoProperties struct {
-	// A portion of the properties that can be written only by the application back-end, and read by the device.
-	Desired *DeviceTwinProperties
-
-	// A portion of the properties that can be written only by the device, and read by the application back-end.
-	Reported *DeviceTwinProperties
-}
-
-// DeviceTwinInfoX509Thumbprint - The thumbprint is a unique value for the x509 certificate, commonly used to find a particular
-// certificate in a certificate store. The thumbprint is dynamically generated using the SHA1 algorithm, and
-// does not physically exist in the certificate.
-type DeviceTwinInfoX509Thumbprint struct {
-	// Primary thumbprint for the x509 certificate.
-	PrimaryThumbprint *string
-
-	// Secondary thumbprint for the x509 certificate.
-	SecondaryThumbprint *string
+	X509Thumbprint *ThumbPrintValue
 }
 
 // DeviceTwinMetadata - Metadata information for the properties JSON document.
@@ -2354,33 +2417,6 @@ type DeviceTwinProperties struct {
 
 	// Version of device twin properties.
 	Version *float32
-}
-
-// Event - Properties of an event published to an Event Grid topic using the EventGrid Schema.
-type Event struct {
-	// REQUIRED; Event data specific to the event type.
-	Data any
-
-	// REQUIRED; The schema version of the data object.
-	DataVersion *string
-
-	// REQUIRED; The time (in UTC) the event was generated.
-	EventTime *time.Time
-
-	// REQUIRED; The type of the event that occurred.
-	EventType *string
-
-	// REQUIRED; An unique identifier for the event.
-	ID *string
-
-	// REQUIRED; A resource path relative to the topic path.
-	Subject *string
-
-	// The resource path of the event source.
-	Topic *string
-
-	// READ-ONLY; The schema version of the event metadata.
-	MetadataVersion *string
 }
 
 // EventGridMQTTClientCreatedOrUpdatedEventData - Event data for Microsoft.EventGrid.MQTTClientCreatedOrUpdated event.
@@ -2402,7 +2438,7 @@ type EventGridMQTTClientCreatedOrUpdatedEventData struct {
 	NamespaceName *string
 
 	// Configured state of the client. The value could be Enabled or Disabled
-	State *EventGridMqttClientState
+	State *EventGridMQTTClientState
 
 	// Time the client resource is last updated based on the provider's UTC time. If the client resource was never updated, this
 	// value is identical to the value of the 'createdOn' property.
@@ -2453,7 +2489,7 @@ type EventGridMQTTClientSessionConnectedEventData struct {
 
 	// A number that helps indicate order of MQTT client session connected or disconnected events. Latest event will have a sequence
 	// number that is higher than the previous event.
-	SequenceNumber *int64
+	SequenceNumber *int32
 }
 
 // EventGridMQTTClientSessionDisconnectedEventData - Event data for Microsoft.EventGrid.MQTTClientSessionDisconnected event.
@@ -2478,7 +2514,7 @@ type EventGridMQTTClientSessionDisconnectedEventData struct {
 
 	// A number that helps indicate order of MQTT client session connected or disconnected events. Latest event will have a sequence
 	// number that is higher than the previous event.
-	SequenceNumber *int64
+	SequenceNumber *int32
 }
 
 // EventHubCaptureFileCreatedEventData - Schema of the Data property of an Event for a Microsoft.EventHub.CaptureFileCreated
@@ -2491,7 +2527,7 @@ type EventHubCaptureFileCreatedEventData struct {
 	FileType *string
 
 	// The path to the capture file.
-	Fileurl *string
+	FileURL *string
 
 	// The first time from the queue.
 	FirstEnqueueTime *time.Time
@@ -2510,6 +2546,21 @@ type EventHubCaptureFileCreatedEventData struct {
 
 	// The file size.
 	SizeInBytes *int32
+}
+
+// EventSubscription - Event Subscription Resource.
+type EventSubscription struct {
+	// READ-ONLY; Event Subscription Name.
+	EventSubscriptionName *string
+}
+
+// FailedLockToken - Failed LockToken information.
+type FailedLockToken struct {
+	// REQUIRED; Error information of the failed operation result for the lock token in the request.
+	Error *AzureCoreFoundationsError
+
+	// REQUIRED; The lock token of an entry in the request.
+	LockToken *string
 }
 
 // HealthcareDicomImageCreatedEventData - Schema of the Data property of an Event for a Microsoft.HealthcareApis.DicomImageCreated
@@ -2561,6 +2612,9 @@ type HealthcareDicomImageDeletedEventData struct {
 // HealthcareDicomImageUpdatedEventData - Schema of the Data property of an Event for a Microsoft.HealthcareApis.DicomImageUpdated
 // event.
 type HealthcareDicomImageUpdatedEventData struct {
+	// REQUIRED; Data partition name
+	PartitionName *string
+
 	// Unique identifier for the Series
 	ImageSeriesInstanceUID *string
 
@@ -2569,9 +2623,6 @@ type HealthcareDicomImageUpdatedEventData struct {
 
 	// Unique identifier for the Study
 	ImageStudyInstanceUID *string
-
-	// Data partition name
-	PartitionName *string
 
 	// Sequence number of the DICOM Service within Azure Health Data Services. It is unique for every image creation, updation
 	// and deletion within the service.
@@ -2584,49 +2635,49 @@ type HealthcareDicomImageUpdatedEventData struct {
 // HealthcareFhirResourceCreatedEventData - Schema of the Data property of an Event for a Microsoft.HealthcareApis.FhirResourceCreated
 // event.
 type HealthcareFhirResourceCreatedEventData struct {
+	// Domain name of FHIR account for this resource.
+	ResourceFhirAccount *string
+
 	// Id of HL7 FHIR resource.
-	FhirResourceID *string
+	ResourceFhirID *string
 
 	// Type of HL7 FHIR resource.
-	FhirResourceType *HealthcareFhirResourceType
+	ResourceType *HealthcareFhirResourceType
 
 	// VersionId of HL7 FHIR resource. It changes when the resource is created, updated, or deleted(soft-deletion).
-	FhirResourceVersionID *int64
-
-	// Domain name of FHIR account for this resource.
-	FhirServiceHostName *string
+	ResourceVersionID *int64
 }
 
 // HealthcareFhirResourceDeletedEventData - Schema of the Data property of an Event for a Microsoft.HealthcareApis.FhirResourceDeleted
 // event.
 type HealthcareFhirResourceDeletedEventData struct {
+	// Domain name of FHIR account for this resource.
+	ResourceFhirAccount *string
+
 	// Id of HL7 FHIR resource.
-	FhirResourceID *string
+	ResourceFhirID *string
 
 	// Type of HL7 FHIR resource.
-	FhirResourceType *HealthcareFhirResourceType
+	ResourceType *HealthcareFhirResourceType
 
 	// VersionId of HL7 FHIR resource. It changes when the resource is created, updated, or deleted(soft-deletion).
-	FhirResourceVersionID *int64
-
-	// Domain name of FHIR account for this resource.
-	FhirServiceHostName *string
+	ResourceVersionID *int64
 }
 
 // HealthcareFhirResourceUpdatedEventData - Schema of the Data property of an Event for a Microsoft.HealthcareApis.FhirResourceUpdated
 // event.
 type HealthcareFhirResourceUpdatedEventData struct {
+	// Domain name of FHIR account for this resource.
+	ResourceFhirAccount *string
+
 	// Id of HL7 FHIR resource.
-	FhirResourceID *string
+	ResourceFhirID *string
 
 	// Type of HL7 FHIR resource.
-	FhirResourceType *HealthcareFhirResourceType
+	ResourceType *HealthcareFhirResourceType
 
 	// VersionId of HL7 FHIR resource. It changes when the resource is created, updated, or deleted(soft-deletion).
-	FhirResourceVersionID *int64
-
-	// Domain name of FHIR account for this resource.
-	FhirServiceHostName *string
+	ResourceVersionID *int64
 }
 
 // IotHubDeviceConnectedEventData - Event data for Microsoft.Devices.DeviceConnected event.
@@ -2705,6 +2756,15 @@ type IotHubDeviceTelemetryEventData struct {
 
 	// System properties help identify contents and source of the messages.
 	SystemProperties map[string]*string
+}
+
+// JSONProperties - Properties JSON element.
+type JSONProperties struct {
+	// A portion of the properties that can be written only by the application back-end, and read by the device.
+	Desired *DeviceTwinProperties
+
+	// A portion of the properties that can be written only by the device, and read by the application back-end.
+	Reported *DeviceTwinProperties
 }
 
 // KeyVaultAccessPolicyChangedEventData - Schema of the Data property of an Event for a Microsoft.KeyVault.VaultAccessPolicyChanged
@@ -2997,10 +3057,10 @@ type MachineLearningServicesModelDeployedEventData struct {
 	ServiceName *string
 
 	// The properties of the deployed service.
-	ServiceProperties any
+	ServiceProperties map[string]*string
 
 	// The tags of the deployed service.
-	ServiceTags any
+	ServiceTags map[string]*string
 }
 
 // MachineLearningServicesModelRegisteredEventData - Schema of the Data property of an Event for a Microsoft.MachineLearningServices.ModelRegistered
@@ -3010,10 +3070,10 @@ type MachineLearningServicesModelRegisteredEventData struct {
 	ModelName *string
 
 	// The properties of the model that was registered.
-	ModelProperties any
+	ModelProperties map[string]*string
 
 	// The tags of the model that was registered.
-	ModelTags any
+	ModelTags map[string]*string
 
 	// The version of the model that was registered.
 	ModelVersion *string
@@ -3032,10 +3092,10 @@ type MachineLearningServicesRunCompletedEventData struct {
 	RunID *string
 
 	// The properties of the completed Run.
-	RunProperties any
+	RunProperties map[string]*string
 
 	// The tags of the completed Run.
-	RunTags any
+	RunTags map[string]*string
 
 	// The Run Type of the completed Run.
 	RunType *string
@@ -3054,13 +3114,13 @@ type MachineLearningServicesRunStatusChangedEventData struct {
 	RunID *string
 
 	// The properties of the Machine Learning Run.
-	RunProperties any
+	RunProperties map[string]*string
 
 	// The status of the Machine Learning Run.
 	RunStatus *string
 
 	// The tags of the Machine Learning Run.
-	RunTags any
+	RunTags map[string]*string
 
 	// The Run Type of the Machine Learning Run.
 	RunType *string
@@ -3253,7 +3313,7 @@ type MediaJobFinishedEventData struct {
 
 // MediaJobOutput - The event data for a Job output.
 type MediaJobOutput struct {
-	// REQUIRED; The discriminator for derived types.
+	// REQUIRED; Discriminator property for MediaJobOutput.
 	ODataType *string
 
 	// REQUIRED; Gets the Job output progress.
@@ -3274,7 +3334,7 @@ func (m *MediaJobOutput) GetMediaJobOutput() *MediaJobOutput { return m }
 
 // MediaJobOutputAsset - The event data for a Job output asset.
 type MediaJobOutputAsset struct {
-	// REQUIRED; The discriminator for derived types.
+	// REQUIRED; Discriminator property for MediaJobOutput.
 	ODataType *string
 
 	// REQUIRED; Gets the Job output progress.
@@ -3379,7 +3439,7 @@ type MediaJobOutputProgressEventData struct {
 	Label *string
 
 	// Gets the Job output progress.
-	Progress *int64
+	Progress *int32
 }
 
 // MediaJobOutputScheduledEventData - Job output scheduled event data. Schema of the data property of an Event for
@@ -3459,6 +3519,9 @@ type MediaLiveEventChannelArchiveHeartbeatEventData struct {
 // MediaLiveEventConnectionRejectedEventData - Encoder connection rejected event data. Schema of the data property of an Event
 // for a Microsoft.Media.LiveEventConnectionRejected event.
 type MediaLiveEventConnectionRejectedEventData struct {
+	// Gets the result code.
+	ResultCode *string
+
 	// READ-ONLY; Gets the remote IP.
 	EncoderIP *string
 
@@ -3467,9 +3530,6 @@ type MediaLiveEventConnectionRejectedEventData struct {
 
 	// READ-ONLY; Gets the ingest URL provided by the live event.
 	IngestURL *string
-
-	// READ-ONLY; Gets the result code.
-	ResultCode *string
 
 	// READ-ONLY; Gets the stream Id.
 	StreamID *string
@@ -3494,6 +3554,9 @@ type MediaLiveEventEncoderConnectedEventData struct {
 // MediaLiveEventEncoderDisconnectedEventData - Encoder disconnected event data. Schema of the Data property of an Event
 // for a Microsoft.Media.LiveEventEncoderDisconnected event.
 type MediaLiveEventEncoderDisconnectedEventData struct {
+	// Gets the result code.
+	ResultCode *string
+
 	// READ-ONLY; Gets the remote IP.
 	EncoderIP *string
 
@@ -3503,9 +3566,6 @@ type MediaLiveEventEncoderDisconnectedEventData struct {
 	// READ-ONLY; Gets the ingest URL provided by the live event.
 	IngestURL *string
 
-	// READ-ONLY; Gets the result code.
-	ResultCode *string
-
 	// READ-ONLY; Gets the stream Id.
 	StreamID *string
 }
@@ -3513,14 +3573,14 @@ type MediaLiveEventEncoderDisconnectedEventData struct {
 // MediaLiveEventIncomingDataChunkDroppedEventData - Ingest fragment dropped event data. Schema of the data property of an
 // Event for a Microsoft.Media.LiveEventIncomingDataChunkDropped event.
 type MediaLiveEventIncomingDataChunkDroppedEventData struct {
+	// Gets the timescale of the Timestamp.
+	Timescale *string
+
 	// READ-ONLY; Gets the bitrate of the track.
 	Bitrate *int64
 
 	// READ-ONLY; Gets the result code for fragment drop operation.
 	ResultCode *string
-
-	// READ-ONLY; Gets the timescale of the Timestamp.
-	Timescale *string
 
 	// READ-ONLY; Gets the timestamp of the data chunk dropped.
 	Timestamp *string
@@ -3777,6 +3837,21 @@ type PolicyInsightsPolicyStateDeletedEventData struct {
 	Timestamp *time.Time
 }
 
+// ReceiveDetails - Receive operation details per Cloud Event.
+type ReceiveDetails struct {
+	// REQUIRED; The Event Broker details.
+	BrokerProperties *BrokerProperties
+
+	// REQUIRED; Cloud Event details.
+	Event *CloudEvent
+}
+
+// ReceiveResult - Details of the Receive operation response.
+type ReceiveResult struct {
+	// REQUIRED; Array of receive responses, one per cloud event.
+	Value []ReceiveDetails
+}
+
 // RedisExportRDBCompletedEventData - Schema of the Data property of an Event for a Microsoft.Cache.ExportRDBCompleted
 // event.
 type RedisExportRDBCompletedEventData struct {
@@ -3827,6 +3902,54 @@ type RedisScalingCompletedEventData struct {
 
 	// The time at which the event occurred.
 	Timestamp *time.Time
+}
+
+// RejectOptions - Array of lock tokens for the corresponding received Cloud Events to be rejected.
+type RejectOptions struct {
+	// REQUIRED; Array of lock tokens.
+	LockTokens []string
+}
+
+// RejectResult - The result of the Reject operation.
+type RejectResult struct {
+	// REQUIRED; Array of FailedLockToken for failed cloud events. Each FailedLockToken includes the lock token along with the
+	// related error information (namely, the error code and description).
+	FailedLockTokens []FailedLockToken
+
+	// REQUIRED; Array of lock tokens for the successfully rejected cloud events.
+	SucceededLockTokens []string
+}
+
+// ReleaseOptions - Array of lock tokens for the corresponding received Cloud Events to be released.
+type ReleaseOptions struct {
+	// REQUIRED; Array of lock tokens.
+	LockTokens []string
+}
+
+// ReleaseResult - The result of the Release operation.
+type ReleaseResult struct {
+	// REQUIRED; Array of FailedLockToken for failed cloud events. Each FailedLockToken includes the lock token along with the
+	// related error information (namely, the error code and description).
+	FailedLockTokens []FailedLockToken
+
+	// REQUIRED; Array of lock tokens for the successfully released cloud events.
+	SucceededLockTokens []string
+}
+
+// RenewCloudEventLocksResult - The result of the RenewLock operation.
+type RenewCloudEventLocksResult struct {
+	// REQUIRED; Array of FailedLockToken for failed cloud events. Each FailedLockToken includes the lock token along with the
+	// related error information (namely, the error code and description).
+	FailedLockTokens []FailedLockToken
+
+	// REQUIRED; Array of lock tokens for the successfully renewed locks.
+	SucceededLockTokens []string
+}
+
+// RenewLockOptions - Array of lock tokens for the corresponding received Cloud Events to be renewed.
+type RenewLockOptions struct {
+	// REQUIRED; Array of lock tokens.
+	LockTokens []string
 }
 
 // ResourceActionCancelEventData - Schema of the Data property of an Event for a Microsoft.Resources.ResourceActionCancel
@@ -4172,7 +4295,7 @@ type ResourceNotificationsResourceUpdatedDetails struct {
 	Properties map[string]any
 
 	// the tags on the resource for which the event is being emitted
-	Tags map[string]*string
+	Tags *string
 
 	// the type of the resource for which the event is being emitted
 	Type *string
@@ -4450,7 +4573,7 @@ type StorageAsyncOperationInitiatedEventData struct {
 	// The identity of the requester that triggered this event.
 	Identity *string
 
-	// The request id generated by the Storage service for the storage API operation that triggered this event.
+	// The request id generated by the storage service for the storage API operation that triggered this event.
 	RequestID *string
 
 	// An opaque string value representing the logical sequence of events for any particular blob name. Users can use standard
@@ -4460,7 +4583,7 @@ type StorageAsyncOperationInitiatedEventData struct {
 
 	// For service use only. Diagnostic data occasionally included by the Azure Storage service. This property should be ignored
 	// by event consumers.
-	StorageDiagnostics any
+	StorageDiagnostics map[string]*string
 
 	// The path to the blob.
 	URL *string
@@ -4492,7 +4615,7 @@ type StorageBlobCreatedEventData struct {
 	// The identity of the requester that triggered this event.
 	Identity *string
 
-	// The request id generated by the Storage service for the storage API operation that triggered this event.
+	// The request id generated by the storage service for the storage API operation that triggered this event.
 	RequestID *string
 
 	// An opaque string value representing the logical sequence of events for any particular blob name. Users can use standard
@@ -4502,7 +4625,7 @@ type StorageBlobCreatedEventData struct {
 
 	// For service use only. Diagnostic data occasionally included by the Azure Storage service. This property should be ignored
 	// by event consumers.
-	StorageDiagnostics any
+	StorageDiagnostics map[string]*string
 
 	// The path to the blob.
 	URL *string
@@ -4525,7 +4648,7 @@ type StorageBlobDeletedEventData struct {
 	// The identity of the requester that triggered this event.
 	Identity *string
 
-	// The request id generated by the Storage service for the storage API operation that triggered this event.
+	// The request id generated by the storage service for the storage API operation that triggered this event.
 	RequestID *string
 
 	// An opaque string value representing the logical sequence of events for any particular blob name. Users can use standard
@@ -4535,7 +4658,7 @@ type StorageBlobDeletedEventData struct {
 
 	// For service use only. Diagnostic data occasionally included by the Azure Storage service. This property should be ignored
 	// by event consumers.
-	StorageDiagnostics any
+	StorageDiagnostics map[string]*string
 
 	// The path to the blob.
 	URL *string
@@ -4593,7 +4716,7 @@ type StorageBlobRenamedEventData struct {
 
 	// For service use only. Diagnostic data occasionally included by the Azure Storage service. This property should be ignored
 	// by event consumers.
-	StorageDiagnostics any
+	StorageDiagnostics map[string]*string
 }
 
 // StorageBlobTierChangedEventData - Schema of the Data property of an Event for a Microsoft.Storage.BlobTierChanged
@@ -4617,7 +4740,7 @@ type StorageBlobTierChangedEventData struct {
 	// The identity of the requester that triggered this event.
 	Identity *string
 
-	// The request id generated by the Storage service for the storage API operation that triggered this event.
+	// The request id generated by the storage service for the storage API operation that triggered this event.
 	RequestID *string
 
 	// An opaque string value representing the logical sequence of events for any particular blob name. Users can use standard
@@ -4627,7 +4750,7 @@ type StorageBlobTierChangedEventData struct {
 
 	// For service use only. Diagnostic data occasionally included by the Azure Storage service. This property should be ignored
 	// by event consumers.
-	StorageDiagnostics any
+	StorageDiagnostics map[string]*string
 
 	// The path to the blob.
 	URL *string
@@ -4658,7 +4781,7 @@ type StorageDirectoryCreatedEventData struct {
 
 	// For service use only. Diagnostic data occasionally included by the Azure Storage service. This property should be ignored
 	// by event consumers.
-	StorageDiagnostics any
+	StorageDiagnostics map[string]*string
 
 	// The path to the directory.
 	URL *string
@@ -4689,7 +4812,7 @@ type StorageDirectoryDeletedEventData struct {
 
 	// For service use only. Diagnostic data occasionally included by the Azure Storage service. This property should be ignored
 	// by event consumers.
-	StorageDiagnostics any
+	StorageDiagnostics map[string]*string
 
 	// The path to the deleted directory.
 	URL *string
@@ -4723,7 +4846,7 @@ type StorageDirectoryRenamedEventData struct {
 
 	// For service use only. Diagnostic data occasionally included by the Azure Storage service. This property should be ignored
 	// by event consumers.
-	StorageDiagnostics any
+	StorageDiagnostics map[string]*string
 }
 
 // StorageLifecyclePolicyActionSummaryDetail - Execution statistics of a specific policy action in a Blob Management cycle.
@@ -4757,29 +4880,29 @@ type StorageLifecyclePolicyCompletedEventData struct {
 // StorageTaskCompletedEventData - Schema of the Data property of an Event for an Microsoft.Storage.StorageTaskCompleted
 // event.
 type StorageTaskCompletedEventData struct {
-	// The time at which a storage task was completed.
+	// REQUIRED; The time at which a storage task was completed.
 	CompletedDateTime *time.Time
 
-	// The status for a storage task.
+	// REQUIRED; The status for a storage task.
 	Status *StorageTaskCompletedStatus
 
-	// The summary report blob url for a storage task
+	// REQUIRED; The summary report blob url for a storage task
 	SummaryReportBlobURL *string
 
-	// The execution id for a storage task.
+	// REQUIRED; The execution id for a storage task.
 	TaskExecutionID *string
 
-	// The task name for a storage task.
+	// REQUIRED; The task name for a storage task.
 	TaskName *string
 }
 
 // StorageTaskQueuedEventData - Schema of the Data property of an Event for an Microsoft.Storage.StorageTaskQueued
 // event.
 type StorageTaskQueuedEventData struct {
-	// The time at which a storage task was queued.
+	// REQUIRED; The time at which a storage task was queued.
 	QueuedDateTime *time.Time
 
-	// The execution id for a storage task.
+	// REQUIRED; The execution id for a storage task.
 	TaskExecutionID *string
 }
 
@@ -4810,6 +4933,23 @@ type SubscriptionValidationEventData struct {
 type SubscriptionValidationResponse struct {
 	// The validation response sent by the subscriber to Azure Event Grid to complete the validation of an event subscription.
 	ValidationResponse *string
+}
+
+// ThumbPrintValue - The thumbprint is a unique value for the x509 certificate, commonly used to find a particular certificate
+// in a certificate store. The thumbprint is dynamically generated using the SHA1 algorithm, and
+// does not physically exist in the certificate.
+type ThumbPrintValue struct {
+	// Primary thumbprint for the x509 certificate.
+	PrimaryThumbprint *string
+
+	// Secondary thumbprint for the x509 certificate.
+	SecondaryThumbprint *string
+}
+
+// Topic Resource.
+type Topic struct {
+	// READ-ONLY; Topic Name.
+	TopicName *string
 }
 
 // WebAppServicePlanUpdatedEventData - Schema of the Data property of an Event for a Microsoft.Web.AppServicePlanUpdated

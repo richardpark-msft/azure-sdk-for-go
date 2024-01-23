@@ -19,7 +19,7 @@ func unmarshalMediaJobOutputClassification(rawMsg json.RawMessage) (MediaJobOutp
 		return nil, err
 	}
 	var b MediaJobOutputClassification
-	switch m["@odata.type"] {
+	switch m["oDataType"] {
 	case "#Microsoft.Media.JobOutputAsset":
 		b = &MediaJobOutputAsset{}
 	default:

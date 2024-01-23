@@ -18,7 +18,7 @@ const (
 	AcsEmailDeliveryReportStatusDelivered AcsEmailDeliveryReportStatus = "Delivered"
 	// AcsEmailDeliveryReportStatusFailed - The email failed to be delivered
 	AcsEmailDeliveryReportStatusFailed AcsEmailDeliveryReportStatus = "Failed"
-	// AcsEmailDeliveryReportStatusFilteredSpam - The message was identified spam and was rejected or blocked (not quarantined).
+	// AcsEmailDeliveryReportStatusFilteredSpam - The message was identified as spam and was rejected or blocked (not quarantined).
 	AcsEmailDeliveryReportStatusFilteredSpam AcsEmailDeliveryReportStatus = "FilteredSpam"
 	// AcsEmailDeliveryReportStatusQuarantined - The message was quarantined (as spam, bulk mail, or phishing). For more information,
 	// see Quarantined email messages in EOP (EXCHANGE ONLINE PROTECTION).
@@ -39,22 +39,34 @@ func PossibleAcsEmailDeliveryReportStatusValues() []AcsEmailDeliveryReportStatus
 	}
 }
 
-// AcsRouterJobStatus - Router Job Received Job Status
+// AcsRouterJobStatus - Acs Router Job Status
 type AcsRouterJobStatus string
 
 const (
-	AcsRouterJobStatusAssigned              AcsRouterJobStatus = "Assigned"
-	AcsRouterJobStatusCancelled             AcsRouterJobStatus = "Cancelled"
-	AcsRouterJobStatusClassificationFailed  AcsRouterJobStatus = "ClassificationFailed"
-	AcsRouterJobStatusClosed                AcsRouterJobStatus = "Closed"
-	AcsRouterJobStatusCompleted             AcsRouterJobStatus = "Completed"
-	AcsRouterJobStatusCreated               AcsRouterJobStatus = "Created"
+	// AcsRouterJobStatusAssigned - Router Job Status Assigned
+	AcsRouterJobStatusAssigned AcsRouterJobStatus = "Assigned"
+	// AcsRouterJobStatusCancelled - Router Job Status Cancelled
+	AcsRouterJobStatusCancelled AcsRouterJobStatus = "Cancelled"
+	// AcsRouterJobStatusClassificationFailed - Router Job Status Classification Failed
+	AcsRouterJobStatusClassificationFailed AcsRouterJobStatus = "ClassificationFailed"
+	// AcsRouterJobStatusClosed - Router Job Status Closed
+	AcsRouterJobStatusClosed AcsRouterJobStatus = "Closed"
+	// AcsRouterJobStatusCompleted - Router Job Status Completed
+	AcsRouterJobStatusCompleted AcsRouterJobStatus = "Completed"
+	// AcsRouterJobStatusCreated - Router Job Status Created
+	AcsRouterJobStatusCreated AcsRouterJobStatus = "Created"
+	// AcsRouterJobStatusPendingClassification - Router Job Status Pending Classification
 	AcsRouterJobStatusPendingClassification AcsRouterJobStatus = "PendingClassification"
-	AcsRouterJobStatusPendingSchedule       AcsRouterJobStatus = "PendingSchedule"
-	AcsRouterJobStatusQueued                AcsRouterJobStatus = "Queued"
-	AcsRouterJobStatusScheduleFailed        AcsRouterJobStatus = "ScheduleFailed"
-	AcsRouterJobStatusScheduled             AcsRouterJobStatus = "Scheduled"
-	AcsRouterJobStatusWaitingForActivation  AcsRouterJobStatus = "WaitingForActivation"
+	// AcsRouterJobStatusPendingSchedule - Router Job Status Pending Schedule
+	AcsRouterJobStatusPendingSchedule AcsRouterJobStatus = "PendingSchedule"
+	// AcsRouterJobStatusQueued - Router Job Status Queued
+	AcsRouterJobStatusQueued AcsRouterJobStatus = "Queued"
+	// AcsRouterJobStatusScheduleFailed - Router Job Status Schedule Failed
+	AcsRouterJobStatusScheduleFailed AcsRouterJobStatus = "ScheduleFailed"
+	// AcsRouterJobStatusScheduled - Router Job Status Scheduled
+	AcsRouterJobStatusScheduled AcsRouterJobStatus = "Scheduled"
+	// AcsRouterJobStatusWaitingForActivation - Router Job Status Waiting For Activation
+	AcsRouterJobStatusWaitingForActivation AcsRouterJobStatus = "WaitingForActivation"
 )
 
 // PossibleAcsRouterJobStatusValues returns the possible values for the AcsRouterJobStatus const type.
@@ -79,17 +91,17 @@ func PossibleAcsRouterJobStatusValues() []AcsRouterJobStatus {
 type AcsRouterLabelOperator string
 
 const (
-	// AcsRouterLabelOperatorEqual - =
+	// AcsRouterLabelOperatorEqual - Router Label Operator Equal
 	AcsRouterLabelOperatorEqual AcsRouterLabelOperator = "Equal"
-	// AcsRouterLabelOperatorGreater - >
+	// AcsRouterLabelOperatorGreater - Router Label Operator Greater
 	AcsRouterLabelOperatorGreater AcsRouterLabelOperator = "Greater"
-	// AcsRouterLabelOperatorGreaterThanOrEqual - >=
-	AcsRouterLabelOperatorGreaterThanOrEqual AcsRouterLabelOperator = "GreaterThanOrEqual"
-	// AcsRouterLabelOperatorLess - <
+	// AcsRouterLabelOperatorGreaterThanorEqual - Router Label Operator Greater than or equal
+	AcsRouterLabelOperatorGreaterThanorEqual AcsRouterLabelOperator = "GreaterThanorEqual"
+	// AcsRouterLabelOperatorLess - Router Label Operator Less
 	AcsRouterLabelOperatorLess AcsRouterLabelOperator = "Less"
-	// AcsRouterLabelOperatorLessThanOrEqual - <=
+	// AcsRouterLabelOperatorLessThanOrEqual - Router Label Operator Less than or equal
 	AcsRouterLabelOperatorLessThanOrEqual AcsRouterLabelOperator = "LessThanOrEqual"
-	// AcsRouterLabelOperatorNotEqual - !=
+	// AcsRouterLabelOperatorNotEqual - Router Label Operator Not Equal
 	AcsRouterLabelOperatorNotEqual AcsRouterLabelOperator = "NotEqual"
 )
 
@@ -98,21 +110,21 @@ func PossibleAcsRouterLabelOperatorValues() []AcsRouterLabelOperator {
 	return []AcsRouterLabelOperator{
 		AcsRouterLabelOperatorEqual,
 		AcsRouterLabelOperatorGreater,
-		AcsRouterLabelOperatorGreaterThanOrEqual,
+		AcsRouterLabelOperatorGreaterThanorEqual,
 		AcsRouterLabelOperatorLess,
 		AcsRouterLabelOperatorLessThanOrEqual,
 		AcsRouterLabelOperatorNotEqual,
 	}
 }
 
-// AcsRouterWorkerSelectorState - Router Job Worker Selector State
+// AcsRouterWorkerSelectorState - Router Worker Selector State
 type AcsRouterWorkerSelectorState string
 
 const (
-	// AcsRouterWorkerSelectorStateActive - Router Job Worker Selector is Active
-	AcsRouterWorkerSelectorStateActive AcsRouterWorkerSelectorState = "active"
-	// AcsRouterWorkerSelectorStateExpired - Router Job Worker Selector has Expire
-	AcsRouterWorkerSelectorStateExpired AcsRouterWorkerSelectorState = "expired"
+	// AcsRouterWorkerSelectorStateActive - Router Worker Selector State Active
+	AcsRouterWorkerSelectorStateActive AcsRouterWorkerSelectorState = "Active"
+	// AcsRouterWorkerSelectorStateExpired - Router Worker Selector State Expired
+	AcsRouterWorkerSelectorStateExpired AcsRouterWorkerSelectorState = "Expired"
 )
 
 // PossibleAcsRouterWorkerSelectorStateValues returns the possible values for the AcsRouterWorkerSelectorState const type.
@@ -123,12 +135,14 @@ func PossibleAcsRouterWorkerSelectorStateValues() []AcsRouterWorkerSelectorState
 	}
 }
 
-// AcsUserEngagement - The type of engagement user have with email
+// AcsUserEngagement - The type of engagement user have with email.
 type AcsUserEngagement string
 
 const (
+	// AcsUserEngagementClick - Click
 	AcsUserEngagementClick AcsUserEngagement = "click"
-	AcsUserEngagementView  AcsUserEngagement = "view"
+	// AcsUserEngagementView - View
+	AcsUserEngagementView AcsUserEngagement = "view"
 )
 
 // PossibleAcsUserEngagementValues returns the possible values for the AcsUserEngagement const type.
@@ -139,7 +153,7 @@ func PossibleAcsUserEngagementValues() []AcsUserEngagement {
 	}
 }
 
-// AppAction - Type of action of the operation.
+// AppAction - App Action Type
 type AppAction string
 
 const (
@@ -205,12 +219,15 @@ func PossibleAsyncStatusValues() []AsyncStatus {
 	}
 }
 
-// CommunicationCloudEnvironmentModel - The cloud that the identifier belongs to.
+// CommunicationCloudEnvironmentModel - Communication cloud environment model.
 type CommunicationCloudEnvironmentModel string
 
 const (
-	CommunicationCloudEnvironmentModelDod    CommunicationCloudEnvironmentModel = "dod"
-	CommunicationCloudEnvironmentModelGcch   CommunicationCloudEnvironmentModel = "gcch"
+	// CommunicationCloudEnvironmentModelDod - Dod
+	CommunicationCloudEnvironmentModelDod CommunicationCloudEnvironmentModel = "dod"
+	// CommunicationCloudEnvironmentModelGcch - Gcch
+	CommunicationCloudEnvironmentModelGcch CommunicationCloudEnvironmentModel = "gcch"
+	// CommunicationCloudEnvironmentModelPublic - Public
 	CommunicationCloudEnvironmentModelPublic CommunicationCloudEnvironmentModel = "public"
 )
 
@@ -244,29 +261,34 @@ func PossibleDataBoxStageNameValues() []DataBoxStageName {
 	}
 }
 
-// EventGridMQTTClientDisconnectionReason - Reason for the disconnection of the MQTT client's session. The value could be
-// one of the values in the disconnection reasons table.
+// EventGridMQTTClientDisconnectionReason - EventGrid MQTT Client Disconnection Reason
 type EventGridMQTTClientDisconnectionReason string
 
 const (
 	// EventGridMQTTClientDisconnectionReasonClientAuthenticationError - The client got disconnected for any authentication reasons
-	// (for example, certificate expired, client got disabled, or client configuration changed).
+	// (for example,
+	// certificate expired, client got disabled, or client configuration changed).
 	EventGridMQTTClientDisconnectionReasonClientAuthenticationError EventGridMQTTClientDisconnectionReason = "ClientAuthenticationError"
 	// EventGridMQTTClientDisconnectionReasonClientAuthorizationError - The client got disconnected for any authorization reasons
-	// (for example, because of a change in the configuration of topic spaces, permission bindings, or client groups).
+	// (for example, because
+	// of a change in the configuration of topic spaces, permission bindings, or
+	// client groups).
 	EventGridMQTTClientDisconnectionReasonClientAuthorizationError EventGridMQTTClientDisconnectionReason = "ClientAuthorizationError"
 	// EventGridMQTTClientDisconnectionReasonClientError - The client sent a bad request or used one of the unsupported features
-	// that resulted in a connection termination by the service.
+	// that
+	// resulted in a connection termination by the service.
 	EventGridMQTTClientDisconnectionReasonClientError EventGridMQTTClientDisconnectionReason = "ClientError"
 	// EventGridMQTTClientDisconnectionReasonClientInitiatedDisconnect - The client initiates a graceful disconnect through a
-	// DISCONNECT packet for MQTT or a close frame for MQTT over WebSocket.
+	// DISCONNECT packet for MQTT
+	// or a close frame for MQTT over WebSocket.
 	EventGridMQTTClientDisconnectionReasonClientInitiatedDisconnect EventGridMQTTClientDisconnectionReason = "ClientInitiatedDisconnect"
 	// EventGridMQTTClientDisconnectionReasonConnectionLost - The client-server connection is lost. (EXCHANGE ONLINE PROTECTION).
 	EventGridMQTTClientDisconnectionReasonConnectionLost EventGridMQTTClientDisconnectionReason = "ConnectionLost"
 	// EventGridMQTTClientDisconnectionReasonIPForbidden - The client's IP address is blocked by IP filter or Private links configuration.
 	EventGridMQTTClientDisconnectionReasonIPForbidden EventGridMQTTClientDisconnectionReason = "IpForbidden"
 	// EventGridMQTTClientDisconnectionReasonQuotaExceeded - The client exceeded one or more of the throttling limits that resulted
-	// in a connection termination by the service.
+	// in a
+	// connection termination by the service.
 	EventGridMQTTClientDisconnectionReasonQuotaExceeded EventGridMQTTClientDisconnectionReason = "QuotaExceeded"
 	// EventGridMQTTClientDisconnectionReasonServerError - The connection got terminated due to an unexpected server error.
 	EventGridMQTTClientDisconnectionReasonServerError EventGridMQTTClientDisconnectionReason = "ServerError"
@@ -274,10 +296,12 @@ const (
 	// reason.
 	EventGridMQTTClientDisconnectionReasonServerInitiatedDisconnect EventGridMQTTClientDisconnectionReason = "ServerInitiatedDisconnect"
 	// EventGridMQTTClientDisconnectionReasonSessionOverflow - The client's queue for unacknowledged QoS1 messages reached its
-	// limit, which resulted in a connection termination by the server.
+	// limit, which
+	// resulted in a connection termination by the server.
 	EventGridMQTTClientDisconnectionReasonSessionOverflow EventGridMQTTClientDisconnectionReason = "SessionOverflow"
 	// EventGridMQTTClientDisconnectionReasonSessionTakenOver - The client reconnected with the same authentication name, which
-	// resulted in the termination of the previous connection.
+	// resulted in the
+	// termination of the previous connection.
 	EventGridMQTTClientDisconnectionReasonSessionTakenOver EventGridMQTTClientDisconnectionReason = "SessionTakenOver"
 )
 
@@ -298,19 +322,21 @@ func PossibleEventGridMQTTClientDisconnectionReasonValues() []EventGridMQTTClien
 	}
 }
 
-// EventGridMqttClientState - Configured state of the client. The value could be Enabled or Disabled
-type EventGridMqttClientState string
+// EventGridMQTTClientState - EventGrid MQTT Client State
+type EventGridMQTTClientState string
 
 const (
-	EventGridMqttClientStateDisabled EventGridMqttClientState = "Disabled"
-	EventGridMqttClientStateEnabled  EventGridMqttClientState = "Enabled"
+	// EventGridMQTTClientStateDisabled - Disabled
+	EventGridMQTTClientStateDisabled EventGridMQTTClientState = "Disabled"
+	// EventGridMQTTClientStateEnabled - Enabled
+	EventGridMQTTClientStateEnabled EventGridMQTTClientState = "Enabled"
 )
 
-// PossibleEventGridMqttClientStateValues returns the possible values for the EventGridMqttClientState const type.
-func PossibleEventGridMqttClientStateValues() []EventGridMqttClientState {
-	return []EventGridMqttClientState{
-		EventGridMqttClientStateDisabled,
-		EventGridMqttClientStateEnabled,
+// PossibleEventGridMQTTClientStateValues returns the possible values for the EventGridMQTTClientState const type.
+func PossibleEventGridMQTTClientStateValues() []EventGridMQTTClientState {
+	return []EventGridMQTTClientState{
+		EventGridMQTTClientStateDisabled,
+		EventGridMQTTClientStateEnabled,
 	}
 }
 
@@ -809,7 +835,7 @@ func PossibleHealthcareFhirResourceTypeValues() []HealthcareFhirResourceType {
 	}
 }
 
-// MediaJobErrorCategory - Helps with categorization of errors.
+// MediaJobErrorCategory - Error categories for Media Job Errors.
 type MediaJobErrorCategory string
 
 const (
@@ -839,7 +865,7 @@ func PossibleMediaJobErrorCategoryValues() []MediaJobErrorCategory {
 	}
 }
 
-// MediaJobErrorCode - Error code describing the error.
+// MediaJobErrorCode - Media Job Error Codes.
 type MediaJobErrorCode string
 
 const (
@@ -889,8 +915,7 @@ func PossibleMediaJobErrorCodeValues() []MediaJobErrorCode {
 	}
 }
 
-// MediaJobRetry - Indicates that it may be possible to retry the Job. If retry is unsuccessful, please contact Azure support
-// via Azure Portal.
+// MediaJobRetry - Media Job Retry Options.
 type MediaJobRetry string
 
 const (
@@ -909,7 +934,7 @@ func PossibleMediaJobRetryValues() []MediaJobRetry {
 	}
 }
 
-// MediaJobState - The previous state of the Job.
+// MediaJobState - State of a Media Job.
 type MediaJobState string
 
 const (
@@ -943,11 +968,13 @@ func PossibleMediaJobStateValues() []MediaJobState {
 	}
 }
 
-// RecordingChannelType - The recording channel type - Mixed, Unmixed
+// RecordingChannelType - Recording channel type
 type RecordingChannelType string
 
 const (
-	RecordingChannelTypeMixed   RecordingChannelType = "Mixed"
+	// RecordingChannelTypeMixed - Mixed channel type
+	RecordingChannelTypeMixed RecordingChannelType = "Mixed"
+	// RecordingChannelTypeUnmixed - Unmixed channel type
 	RecordingChannelTypeUnmixed RecordingChannelType = "Unmixed"
 )
 
@@ -959,11 +986,13 @@ func PossibleRecordingChannelTypeValues() []RecordingChannelType {
 	}
 }
 
-// RecordingContentType - The recording content type- AudioVideo, or Audio
+// RecordingContentType - Recording content type
 type RecordingContentType string
 
 const (
-	RecordingContentTypeAudio      RecordingContentType = "Audio"
+	// RecordingContentTypeAudio - Audio content type
+	RecordingContentTypeAudio RecordingContentType = "Audio"
+	// RecordingContentTypeAudioVideo - AudioVideo content type
 	RecordingContentTypeAudioVideo RecordingContentType = "AudioVideo"
 )
 
@@ -975,12 +1004,15 @@ func PossibleRecordingContentTypeValues() []RecordingContentType {
 	}
 }
 
-// RecordingFormatType - The recording format type - Mp4, Mp3, Wav
+// RecordingFormatType - Recording format type
 type RecordingFormatType string
 
 const (
+	// RecordingFormatTypeMp3 - MP3 format
 	RecordingFormatTypeMp3 RecordingFormatType = "Mp3"
+	// RecordingFormatTypeMp4 - MP4 format
 	RecordingFormatTypeMp4 RecordingFormatType = "Mp4"
+	// RecordingFormatTypeWav - WAV format
 	RecordingFormatTypeWav RecordingFormatType = "Wav"
 )
 
@@ -990,6 +1022,50 @@ func PossibleRecordingFormatTypeValues() []RecordingFormatType {
 		RecordingFormatTypeMp3,
 		RecordingFormatTypeMp4,
 		RecordingFormatTypeWav,
+	}
+}
+
+// ReleaseDelay - Supported delays for release operation.
+type ReleaseDelay float32
+
+const (
+	// ReleaseDelayBy0Seconds - Release the event after 0 seconds.
+	ReleaseDelayBy0Seconds ReleaseDelay = 0
+	// ReleaseDelayBy10Seconds - Release the event after 10 seconds.
+	ReleaseDelayBy10Seconds ReleaseDelay = 10
+	// ReleaseDelayBy3600Seconds - Release the event after 3600 seconds.
+	ReleaseDelayBy3600Seconds ReleaseDelay = 3600
+	// ReleaseDelayBy600Seconds - Release the event after 600 seconds.
+	ReleaseDelayBy600Seconds ReleaseDelay = 600
+	// ReleaseDelayBy60Seconds - Release the event after 60 seconds.
+	ReleaseDelayBy60Seconds ReleaseDelay = 60
+)
+
+// PossibleReleaseDelayValues returns the possible values for the ReleaseDelay const type.
+func PossibleReleaseDelayValues() []ReleaseDelay {
+	return []ReleaseDelay{
+		ReleaseDelayBy0Seconds,
+		ReleaseDelayBy10Seconds,
+		ReleaseDelayBy3600Seconds,
+		ReleaseDelayBy600Seconds,
+		ReleaseDelayBy60Seconds,
+	}
+}
+
+type ServiceAPIVersions string
+
+const (
+	ServiceAPIVersionsV20230601Preview ServiceAPIVersions = "2023-06-01-preview"
+	ServiceAPIVersionsV20231001Preview ServiceAPIVersions = "2023-10-01-preview"
+	ServiceAPIVersionsV20231101        ServiceAPIVersions = "2023-11-01"
+)
+
+// PossibleServiceAPIVersionsValues returns the possible values for the ServiceAPIVersions const type.
+func PossibleServiceAPIVersionsValues() []ServiceAPIVersions {
+	return []ServiceAPIVersions{
+		ServiceAPIVersionsV20230601Preview,
+		ServiceAPIVersionsV20231001Preview,
+		ServiceAPIVersionsV20231101,
 	}
 }
 
@@ -1018,7 +1094,9 @@ func PossibleStampKindValues() []StampKind {
 type StorageTaskCompletedStatus string
 
 const (
-	StorageTaskCompletedStatusFailed    StorageTaskCompletedStatus = "Failed"
+	// StorageTaskCompletedStatusFailed - Failed
+	StorageTaskCompletedStatusFailed StorageTaskCompletedStatus = "Failed"
+	// StorageTaskCompletedStatusSucceeded - Succeeded
 	StorageTaskCompletedStatusSucceeded StorageTaskCompletedStatus = "Succeeded"
 )
 
