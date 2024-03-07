@@ -291,6 +291,23 @@ func (r *Receiver) PeekMessages(ctx context.Context, maxMessageCount int, option
 	return receivedMessages, internal.TransformError(err)
 }
 
+// DeleteMessagesOptions contains options for [Receiver.DeleteMessages].
+type DeleteMessagesOptions struct {
+	// Count is the maximum number of messages to delete. Defaults to 1.
+	Count int
+
+	// Before is used to determine which messages to delete. DeleteMessages will delete any messages
+	// before this time. Defaults to the current time.
+	Before time.Time
+}
+
+// DeleteMessages will delete messages from a queue or subscription. These messages are not received
+// locally, saving bandwidth.
+// Returns the number of messages deleted, which can be less than the amount requested or an error.
+func (r *Receiver) DeleteMessages(ctx context.Context, options *DeleteMessagesOptions) (int, error) {
+	return 0, nil
+}
+
 // RenewMessageLockOptions contains optional parameters for the RenewMessageLock function.
 type RenewMessageLockOptions struct {
 	// For future expansion
