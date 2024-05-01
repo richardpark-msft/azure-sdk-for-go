@@ -33,7 +33,3 @@ func (ac *AtomicChannel[T]) ReplaceAndClose(newV chan T) bool {
 
 	return false
 }
-
-func (ac *AtomicChannel[T]) StoreIfEmpty(newV chan T) bool {
-	return ac.v.CompareAndSwap((chan T)(nil), newV)
-}
