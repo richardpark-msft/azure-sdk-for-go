@@ -1,12 +1,16 @@
 # Release History
 
-## 1.1.1 (Unreleased)
+## 1.2.0 (Unreleased)
 
 ### Features Added
+
+- Processor.Run can now be called properly after cancellation. (PR#TBD)
 
 ### Breaking Changes
 
 ### Bugs Fixed
+
+- Processor.NextPartitionClient() now returns nil when Run() is cancelled. (PR#TBD)
 
 ### Other Changes
 
