@@ -13,6 +13,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	azlog "github.com/Azure/azure-sdk-for-go/sdk/internal/log"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/utils"
 )
 
 // processorOwnerLevel is the owner level we assign to every ProcessorPartitionClient
@@ -96,11 +97,23 @@ type Processor struct {
 	// it's an interface here to make testing easier.
 	consumerClient consumerClientForProcessor
 
-	nextClients           chan *ProcessorPartitionClient
+	// nextClientsChan is ready NextPartitionClient(). We add new ProcessorPartitionClient instances
+	// to here while dispatching. It's closed when Run exits.
+	// NOTE: Due to the need to know the # of partitions this is only initialized when
+	// Run() is called.
+	nextClientsChan *utils.AtomicChannel[*ProcessorPartitionClient]
+
+	// nextClientsReadyChan is close()'d when we initialize nextClients for the first time.
+	// This makes it simple for the user to call NextPartitionClient() at any time (before
+	// Run, during, etc...) and have it block on an active channel.
+	nextClientsReadyChan chan struct{}
+
+	// runActiveChan is closed when the Run() function exits.
+	runActiveChan *utils.AtomicChannel[struct{}]
+
 	consumerClientDetails consumerClientDetails
 
-	runCalled chan struct{}
-	lb        *processorLoadBalancer
+	lb *processorLoadBalancer
 
 	// claimedOwnerships is set to whatever our current ownerships are. The underlying
 	// value is a []Ownership.
@@ -173,12 +186,20 @@ func newProcessorImpl(consumerClient consumerClientForProcessor, checkpointStore
 		},
 		prefetch:              options.Prefetch,
 		consumerClientDetails: consumerClient.getDetails(),
-		runCalled:             make(chan struct{}),
 		lb:                    newProcessorLoadBalancer(checkpointStore, consumerClient.getDetails(), strategy, partitionDurationExpiration),
 		currentOwnerships:     currentOwnerships,
 
 		// `nextClients` will be initialized when the user calls Run() since it needs to query the #
 		// of partitions on the Event Hub.
+		nextClientsChan: &utils.AtomicChannel[*ProcessorPartitionClient]{},
+
+		// partitionsLoadedCh tracks whether nextClientsCh is available. It has to be initialized
+		// within Run(), so we need to give NextPartitionClient() something to wait on.
+		nextClientsReadyChan: make(chan struct{}),
+
+		// runActiveCh tracks whether Run() is active, or if it's exited and we should reset state
+		// and unblock any NextPartitionClient() callers.
+		runActiveChan: &utils.AtomicChannel[struct{}]{},
 	}, nil
 }
 
@@ -193,14 +214,19 @@ func newProcessorImpl(consumerClient consumerClientForProcessor, checkpointStore
 //
 // [example_consuming_with_checkpoints_test.go]: https://github.com/Azure/azure-sdk-for-go/blob/main/sdk/messaging/azeventhubs/example_consuming_with_checkpoints_test.go
 func (p *Processor) NextPartitionClient(ctx context.Context) *ProcessorPartitionClient {
+	fmt.Printf("NextPartitionClient: Waiting for p.nextClients to be initialized\n")
 	select {
 	case <-ctx.Done():
 		return nil
-	case <-p.runCalled:
+	case <-p.runActiveChan.Load():
+		return nil
+	case <-p.nextClientsReadyChan:
 	}
 
 	select {
-	case nextClient := <-p.nextClients:
+	case <-p.runActiveChan.Load():
+		return nil
+	case nextClient := <-p.nextClientsChan.Load():
 		return nextClient
 	case <-ctx.Done():
 		return nil
@@ -238,22 +264,40 @@ func (p *Processor) Run(ctx context.Context) error {
 
 func (p *Processor) runImpl(ctx context.Context) error {
 	consumers := &sync.Map{}
+	var eventHubProperties *EventHubProperties
+
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		p.closeConsumers(ctx, consumers)
+
+		// reset in case they want to call Run() again
+		if eventHubProperties != nil {
+			p.nextClientsChan.ReplaceAndClose(make(chan *ProcessorPartitionClient, len(eventHubProperties.PartitionIDs)))
+		}
+
+		p.runActiveChan.ReplaceAndClose(make(chan struct{}))
+
+		// I'm not sure if this is right - it might have been better using the
+		// specifically tied-to-run lifetime channel than doing this and having it
+		// trying to do double duty (indicating lifetime or pushing to the next select)
+		// p.nextClientsInitialized.ReplaceAndClose(make(chan struct{}))
 	}()
 
 	// size the channel to the # of partitions. We can never exceed this size since
 	// we'll never reclaim a partition that we already have ownership of.
-	eventHubProperties, err := p.initNextClientsCh(ctx)
+	fmt.Printf("runImpl: initializing\n")
+	tmpEventHubProperties, err := p.initNextClientsChan(ctx)
 
 	if err != nil {
 		return err
 	}
 
 	// do one dispatch immediately
-	if err := p.dispatch(ctx, eventHubProperties, consumers); err != nil {
+	fmt.Printf("runImpl: got event hub properties\n")
+	eventHubProperties = &tmpEventHubProperties
+
+	if err := p.dispatch(ctx, *eventHubProperties, consumers); err != nil {
 		return err
 	}
 
@@ -266,7 +310,7 @@ func (p *Processor) runImpl(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-time.After(calculateUpdateInterval(rnd, p.ownershipUpdateInterval)):
-			if err := p.dispatch(ctx, eventHubProperties, consumers); err != nil {
+			if err := p.dispatch(ctx, *eventHubProperties, consumers); err != nil {
 				return err
 			}
 		}
@@ -279,15 +323,19 @@ func calculateUpdateInterval(rnd *rand.Rand, updateInterval time.Duration) time.
 	return time.Duration(updateInterval.Seconds() * (rnd.Float64()/2 + 0.8) * float64(time.Second))
 }
 
-func (p *Processor) initNextClientsCh(ctx context.Context) (EventHubProperties, error) {
+func (p *Processor) initNextClientsChan(ctx context.Context) (EventHubProperties, error) {
 	eventHubProperties, err := p.consumerClient.GetEventHubProperties(ctx, nil)
 
 	if err != nil {
 		return EventHubProperties{}, err
 	}
 
-	p.nextClients = make(chan *ProcessorPartitionClient, len(eventHubProperties.PartitionIDs))
-	close(p.runCalled)
+	ch := p.nextClientsChan.Load()
+
+	if ch == nil {
+		p.nextClientsChan.Store(make(chan *ProcessorPartitionClient, len(eventHubProperties.PartitionIDs)))
+		close(p.nextClientsReadyChan)
+	}
 
 	return eventHubProperties, nil
 }
@@ -381,7 +429,7 @@ func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership,
 	processorPartClient.innerClient = partClient
 
 	select {
-	case p.nextClients <- processorPartClient:
+	case p.nextClientsChan.Load() <- processorPartClient:
 		return nil
 	default:
 		processorPartClient.Close(ctx)
@@ -439,6 +487,19 @@ func (p *Processor) closeConsumers(ctx context.Context, consumersMap *sync.Map) 
 
 		if client != nil {
 			client.Close(ctx)
+		}
+
+		// clean out the channel as well of any partition clients.
+		// We just closed all the active ones so we only need to remove
+		// them from the channel
+		nextClients := p.nextClientsChan.Load()
+	DrainLoop:
+		for {
+			select {
+			case <-nextClients:
+			default:
+				break DrainLoop
+			}
 		}
 
 		return true

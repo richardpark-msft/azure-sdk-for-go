@@ -189,15 +189,15 @@ func TestUnit_Processor_Run_singleConsumerPerPartition(t *testing.T) {
 
 	// to make the test easier (and less dependent on timing) we're calling through to the
 	// pieces of the runImpl function
-	_, err = processor.initNextClientsCh(context.Background())
+	_, err = processor.initNextClientsChan(context.Background())
 	require.NoError(t, err)
-	require.Empty(t, processor.nextClients)
-	require.Equal(t, len(ehProps.PartitionIDs), cap(processor.nextClients))
+	require.Empty(t, processor.nextClientsChan)
+	require.Equal(t, len(ehProps.PartitionIDs), cap(processor.nextClientsChan.Load()))
 
 	// the first dispatch - we have a single partition available ("a") and it gets assigned
 	err = processor.dispatch(context.Background(), ehProps, consumersSyncMap)
 	require.NoError(t, err)
-	require.Equal(t, 1, len(processor.nextClients), "the client we created is ready to get picked up by NextPartitionClient()")
+	require.Equal(t, 1, len(processor.nextClientsChan.Load()), "the client we created is ready to get picked up by NextPartitionClient()")
 
 	consumers := syncMapToNormalMap(consumersSyncMap)
 	origPartClient := consumers["a"]
@@ -207,7 +207,7 @@ func TestUnit_Processor_Run_singleConsumerPerPartition(t *testing.T) {
 	// pull the client from the channel - it should be for the "a" partition
 	procClient := processor.NextPartitionClient(context.Background())
 	require.Equal(t, "a", procClient.partitionID)
-	require.Empty(t, processor.nextClients)
+	require.Empty(t, processor.nextClientsChan)
 
 	// the second dispatch - we reaffirm our ownership of "a" _but_ since we're already processing it no new
 	// client is returned.
@@ -247,7 +247,7 @@ func TestUnit_Processor_Run_startPosition(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ehProps, err := processor.initNextClientsCh(context.Background())
+	ehProps, err := processor.initNextClientsChan(context.Background())
 	require.NoError(t, err)
 
 	consumers := sync.Map{}
