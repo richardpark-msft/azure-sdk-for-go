@@ -1243,10 +1243,12 @@ func TestReceiverDeleteMessages(t *testing.T) {
 		})
 
 		t.Run("PurgeMessages"+testSuffix, func(t *testing.T) {
+			const sent = 12001
+
 			// create just enough messages to ensure we have to loop at least twice
 			// (in reality we'll probably loop a few times anyways since we don't always delete 4000 on
 			// each call)
-			_, receiver := init(t, 4000+1, qp, nil)
+			_, receiver := init(t, sent, qp, nil)
 
 			rounds := 0
 			total := int64(0)
@@ -1281,7 +1283,7 @@ func TestReceiverDeleteMessages(t *testing.T) {
 			purge()
 
 			require.GreaterOrEqual(t, rounds, 2)
-			require.Equal(t, int64(4001), total)
+			require.Equal(t, int64(sent), total)
 
 			// queue should be empty
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

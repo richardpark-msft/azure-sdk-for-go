@@ -377,6 +377,7 @@ type DeleteMessagesOptions struct {
 
 // DeleteMessages deletes messages from a queue or subscription.
 // Messages are deleted on the service and are not transferred locally.
+// More information here: https://learn.microsoft.com/azure/service-bus-messaging/batch-delete
 func (r *Receiver) DeleteMessages(ctx context.Context, options *DeleteMessagesOptions) (int64, error) {
 	if options == nil {
 		options = &DeleteMessagesOptions{}
