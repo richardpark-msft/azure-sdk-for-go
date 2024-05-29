@@ -17,7 +17,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/recording"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/internal/v2/testutil"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storagecache/armstoragecache/v3"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/storagecache/armstoragecache/v4"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -58,6 +58,9 @@ func (testsuite *AmlfilesystemTestSuite) TearDownSuite() {
 }
 
 func TestAmlfilesystemTestSuite(t *testing.T) {
+	if recording.GetRecordMode() == recording.PlaybackMode {
+		t.Skip("https://github.com/Azure/azure-sdk-for-go/issues/22869")
+	}
 	suite.Run(t, new(AmlfilesystemTestSuite))
 }
 

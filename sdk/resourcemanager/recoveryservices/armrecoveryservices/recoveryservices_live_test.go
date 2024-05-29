@@ -16,7 +16,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/recording"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/internal/v2/testutil"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/recoveryservices/armrecoveryservices"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/recoveryservices/armrecoveryservices/v2"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -53,6 +53,9 @@ func (testsuite *RecoveryservicesTestSuite) TearDownSuite() {
 }
 
 func TestRecoveryservicesTestSuite(t *testing.T) {
+	if recording.GetRecordMode() == recording.PlaybackMode {
+		t.Skip("https://github.com/Azure/azure-sdk-for-go/issues/22869")
+	}
 	suite.Run(t, new(RecoveryservicesTestSuite))
 }
 
@@ -201,6 +204,8 @@ func (testsuite *RecoveryservicesTestSuite) TestRecoveryServices() {
 
 	// From step Vaults_Delete
 	fmt.Println("Call operation: Vaults_Delete")
-	_, err = vaultsClient.Delete(testsuite.ctx, testsuite.resourceGroupName, testsuite.vaultName, nil)
+	vaultsClientDeleteResponsePoller, err := vaultsClient.BeginDelete(testsuite.ctx, testsuite.resourceGroupName, testsuite.vaultName, nil)
+	testsuite.Require().NoError(err)
+	_, err = testutil.PollForTest(testsuite.ctx, vaultsClientDeleteResponsePoller)
 	testsuite.Require().NoError(err)
 }

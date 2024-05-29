@@ -6,6 +6,22 @@
 
 - Receiver.DeleteMessages can delete messages in batches, service-side. This allows you to quickly purge messages in a queue or subscription. (PR#22784)
 
+## 1.7.2 (Unreleased)
+
+### Features Added
+
+### Breaking Changes
+
+### Bugs Fixed
+
+### Other Changes
+
+## 1.7.1 (2024-05-20)
+
+### Bugs Fixed
+
+- Emulator strings should allow for hosts other than localhost (PR#22898)
+
 ## 1.7.0 (2024-04-02)
 
 ### Features Added

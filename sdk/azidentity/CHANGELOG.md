@@ -1,14 +1,22 @@
 # Release History
 
-## 1.6.0-beta.4 (Unreleased)
+## 1.6.0-beta.5 (Unreleased)
 
 ### Features Added
+* `NewOnBehalfOfCredentialWithClientAssertions` creates an on-behalf-of credential
+  that authenticates with client assertions such as federated credentials
 
 ### Breaking Changes
 
 ### Bugs Fixed
 
 ### Other Changes
+
+## 1.6.0-beta.4 (2024-05-14)
+
+### Features Added
+* `AzurePipelinesCredential` authenticates an Azure Pipeline service connection with
+  workload identity federation
 
 ## 1.6.0-beta.3 (2024-04-09)
 
