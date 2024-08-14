@@ -104,6 +104,7 @@ func (l *Links[LinkT]) GetLink(ctx context.Context, partitionID string) (LinkWit
 	current = l.links[partitionID]
 
 	if current == nil {
+		// RP: scrutinize - possible to leave self in bad state?
 		ls, err := l.newLinkState(ctx, partitionID)
 
 		if err != nil {

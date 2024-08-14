@@ -111,6 +111,7 @@ func (pc *PartitionClient) ReceiveEvents(ctx context.Context, count int, options
 		return nil, internal.NewErrNonRetriable(fmt.Sprintf("count cannot exceed %d", defaultMaxCreditSize))
 	}
 
+	// RP: we do pass in their context here.
 	err := pc.links.Retry(ctx, EventConsumer, "ReceiveEvents", pc.partitionID, pc.retryOptions, func(ctx context.Context, lwid internal.LinkWithID[amqpwrap.AMQPReceiverCloser]) error {
 		events = nil
 
@@ -177,6 +178,7 @@ func (pc *PartitionClient) ReceiveEvents(ctx context.Context, count int, options
 
 	if err != nil && len(events) == 0 {
 		transformedErr := internal.TransformError(err)
+		// RP: here's the line they're seeing in their log. They didn't get any events either so they got our cancellation context error.
 		log.Writef(EventConsumer, "No events received, returning error %s", transformedErr.Error())
 		return nil, transformedErr
 	}

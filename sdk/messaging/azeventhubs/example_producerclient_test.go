@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
@@ -179,4 +180,37 @@ func ExampleProducerClient_GetPartitionProperties() {
 
 	fmt.Printf("First sequence number for partition ID %s: %d\n", partitionProps.PartitionID, partitionProps.BeginningSequenceNumber)
 	fmt.Printf("Last sequence number for partition ID %s: %d\n", partitionProps.PartitionID, partitionProps.LastEnqueuedSequenceNumber)
+}
+
+func ExampleNewProducerClient_configuringRetries() {
+	// `DefaultAzureCredential` tries several common credential types. For more credential types
+	// see this link: https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/azidentity#readme-credential-types.
+	defaultAzureCred, err := azidentity.NewDefaultAzureCredential(nil)
+
+	if err != nil {
+		panic(err)
+	}
+
+	producerClient, err = azeventhubs.NewProducerClient("<ex: myeventhubnamespace.servicebus.windows.net>", "eventhub-name", defaultAzureCred, &azeventhubs.ProducerClientOptions{
+		// NOTE: you don't need to configure these explicitly if you like the defaults.
+		// For more information see:
+		//  https://pkg.go.dev/github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus#RetryOptions
+		RetryOptions: azeventhubs.RetryOptions{
+			// MaxRetries specifies the maximum number of attempts a failed operation will be retried
+			// before producing an error.
+			MaxRetries: 3,
+			// RetryDelay specifies the initial amount of delay to use before retrying an operation.
+			// The delay increases exponentially with each retry up to the maximum specified by MaxRetryDelay.
+			RetryDelay: 4 * time.Second,
+			// MaxRetryDelay specifies the maximum delay allowed before retrying an operation.
+			// Typically the value is greater than or equal to the value specified in RetryDelay.
+			MaxRetryDelay: 120 * time.Second,
+		},
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	_ = producerClient
 }

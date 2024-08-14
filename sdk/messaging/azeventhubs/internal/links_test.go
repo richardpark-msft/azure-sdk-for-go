@@ -317,6 +317,17 @@ func TestLinksManagementRetry(t *testing.T) {
 	require.Nil(t, links.managementLink)
 }
 
+func TestRecoveryWithCancelledContext(t *testing.T) {
+	// Customer calls into our functions, has an error and the context, bring expired, causes our retries
+	// to abort before we attempt to do even a single recovery.
+	//
+	// https://github.com/Azure/azure-sdk-for-go/issues/23282
+
+	// We want to do the bare minimum there to make it so the next call does the full recovery by seeing that
+	// none of the needed items are actually initialized.
+	require.FailNow(t, "TODO: implement")
+}
+
 func requireNewLinkSameConn(t *testing.T, oldLWID LinkWithID[AMQPSenderCloser], newLWID LinkWithID[AMQPSenderCloser]) {
 	t.Helper()
 	require.NotEqual(t, oldLWID.Link().LinkName(), newLWID.Link().LinkName(), "Link should have a new ID because it was recreated")

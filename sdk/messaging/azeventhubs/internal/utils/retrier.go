@@ -23,6 +23,9 @@ type RetryFnArgs struct {
 	// If you have potentially expensive
 	LastErr error
 
+	// RetryCancelled indicates that the sleep for the retry was cancelled.
+	RetryCancelled bool
+
 	resetAttempts bool
 }
 
@@ -51,6 +54,18 @@ func Retry(ctx context.Context, eventName log.Event, prefix func() string, o exp
 
 			select {
 			case <-ctx.Done():
+				// RP: callers to this must be aware that a cancellation can happen, and possibly handle it
+				// if they were in the middle of handling a recoverable error.
+
+				// RP: maybe instead of doing this we can call the user's callback one more time and let them handle it
+				// with the additional factor that the user cancelled.
+				args := RetryFnArgs{
+					I:              i,
+					LastErr:        err,
+					RetryCancelled: true,
+				}
+				err = fn(ctx, &args)
+
 				return ctx.Err()
 			case <-time.After(sleep):
 			}
@@ -82,6 +97,8 @@ func Retry(ctx context.Context, eventName log.Event, prefix func() string, o exp
 				}
 				return err
 			} else {
+				// RP: okay, this is key. If they returned a retryable error then we need to _close_ things now. If they
+				// end up cancelling the next retry will forget about it all and will never recover anything!
 				log.Writef(eventName, "(%s) Retry attempt %d returned retryable error: %s", prefix(), i, err.Error())
 			}
 

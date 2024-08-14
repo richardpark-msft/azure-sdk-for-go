@@ -42,11 +42,17 @@ func (l LinkRetrier[LinkT]) Retry(ctx context.Context,
 		return currentPrefix
 	}
 
-	return utils.Retry(ctx, eventName, prefix, retryOptions, func(ctx context.Context, args *utils.RetryFnArgs) error {
+	// RP: it's possible for utils.Retry to return a cancel error, but that can possibly avoid our recovery code since
+	// it'll early exit.
+
+	err := utils.Retry(ctx, eventName, prefix, retryOptions, func(ctx context.Context, args *utils.RetryFnArgs) error {
+		// RP: ctx could return without error message?
+		// Doesn't look like it can. Each spot that could accept a context also returns an error into a block of code that logs.
 		if err := l.RecoverIfNeeded(ctx, args.LastErr); err != nil {
 			return err
 		}
 
+		// RP: ctx could return without error message?
 		linkWithID, err := l.GetLink(ctx, partitionID)
 
 		if err != nil {
@@ -85,6 +91,11 @@ func (l LinkRetrier[LinkT]) Retry(ctx context.Context,
 
 		return nil
 	}, isFatalErrorFunc)
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		// RP: we don't know if we were in the middle of recovery here or not though.
+
+	}
 }
 
 func (l LinkRetrier[LinkT]) RecoverIfNeeded(ctx context.Context, err error) error {
@@ -101,6 +112,7 @@ func (l LinkRetrier[LinkT]) RecoverIfNeeded(ctx context.Context, err error) erro
 			return nil
 		}
 
+		// RP: CloseLink should close the link _first_, ignoring the context.
 		if err := l.CloseLink(ctx, awErr.PartitionID, awErr.LinkName); err != nil {
 			azlog.Writef(exported.EventConn, "(%s) Error when cleaning up old link for link recovery: %s", formatLogPrefix(awErr.ConnID, awErr.LinkName, awErr.PartitionID), err)
 			return err
@@ -111,6 +123,7 @@ func (l LinkRetrier[LinkT]) RecoverIfNeeded(ctx context.Context, err error) erro
 		var awErr amqpwrap.Error
 
 		if !errors.As(err, &awErr) {
+			// RP: not a bug but...looks suspicious.
 			azlog.Writef(exported.EventConn, "RecoveryKindConn, but not an amqpwrap.Error: %T,%v", err, err)
 			return nil
 		}
@@ -119,6 +132,8 @@ func (l LinkRetrier[LinkT]) RecoverIfNeeded(ctx context.Context, err error) erro
 		// We used to close _all_ the links, but no longer do that since it's possible (when we do receiver
 		// redirect) to have more than one active connection at a time which means not all links would be
 		// affected when a single connection goes down.
+
+		// RP: CloseLink should close the link _first_, ignoring the context.
 		if err := l.CloseLink(ctx, awErr.PartitionID, awErr.LinkName); err != nil {
 			azlog.Writef(exported.EventConn, "(%s) Error when cleaning up old link: %s", formatLogPrefix(awErr.ConnID, awErr.LinkName, awErr.PartitionID), err)
 
@@ -141,6 +156,8 @@ func (l LinkRetrier[LinkT]) RecoverIfNeeded(ctx context.Context, err error) erro
 		//
 		// For #2, we may recreate the connection. It's possible we won't if the connection itself
 		// has already been recovered by another goroutine.
+
+		// RP: NSRecover should close the connection _first_, ignoring the context.
 		err := l.NSRecover(ctx, awErr.ConnID)
 
 		if err != nil {
