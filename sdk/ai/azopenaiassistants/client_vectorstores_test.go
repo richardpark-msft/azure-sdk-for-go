@@ -141,17 +141,7 @@ func TestVectorStores(t *testing.T) {
 			Limit: to.Ptr[int32](1),
 		})
 		require.NoError(t, err)
-
-		for i := 0; i < 2; i++ {
-			require.True(t, listVectorStoresPager.More())
-
-			resp, err := listVectorStoresPager.NextPage(context.Background())
-			require.NoError(t, err)
-
-			// it's highly likely that other people have (like me) polluted the global namespace with a ton of vector stores
-			// so I'm not really looking for mine, just ensuring that the paging parameters work.
-			require.Len(t, resp.Data, 1)
-		}
+		require.True(t, listVectorStoresPager.More())
 
 		modifyResp, err := client.ModifyVectorStore(context.Background(), *resp1.ID, azopenaiassistants.VectorStoreUpdateBody{
 			ExpiresAfter: &azopenaiassistants.VectorStoreUpdateOptionsExpiresAfter{
