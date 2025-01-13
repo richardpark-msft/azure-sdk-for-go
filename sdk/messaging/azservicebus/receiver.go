@@ -317,6 +317,40 @@ func (r *Receiver) RenewMessageLock(ctx context.Context, msg *ReceivedMessage, o
 	return internal.TransformError(err)
 }
 
+// RenewMessageLock renews the lock on a message, updating the `LockedUntil` field on `msg`.
+// If the operation fails it can return an [*azservicebus.Error] type if the failure is actionable.
+func (r *Receiver) RenewMessageLocks(ctx context.Context, msgs []*ReceivedMessage, options *RenewMessageLockOptions) error {
+	// we require that all the messages are on the same link for this one.
+
+	// TODO: this code is not production ready.
+	currentLinkName := msgs[0].linkName
+	var lockTokens []amqp.UUID
+
+	for _, msg := range msgs {
+		if msg.linkName != currentLinkName {
+			panic("Messages must all come from the same link!")
+		}
+
+		lockTokens = append(lockTokens, amqp.UUID(msg.LockToken))
+	}
+
+	err := r.amqpLinks.Retry(ctx, EventReceiver, "renewMessageLock", func(ctx context.Context, linksWithVersion *internal.LinksWithID, args *utils.RetryFnArgs) error {
+		newExpirationTime, err := internal.RenewLocks(ctx, linksWithVersion.RPC, msgs[0].linkName, lockTokens)
+
+		if err != nil {
+			return err
+		}
+
+		for i, msg := range msgs {
+			msg.LockedUntil = &newExpirationTime[i]
+		}
+
+		return nil
+	}, r.retryOptions)
+
+	return internal.TransformError(err)
+}
+
 // Close permanently closes the receiver.
 func (r *Receiver) Close(ctx context.Context) error {
 	cancelReleaser := r.cancelReleaser.Swap(emptyCancelFn).(func() string)

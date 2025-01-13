@@ -23,6 +23,83 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBatchRenewLock(t *testing.T) {
+	setup := func(t *testing.T) (*Receiver, []*ReceivedMessage, []time.Time) {
+		serviceBusClient, cleanup, queueName := setupLiveTest(t, &liveTestOptions{
+			QueueProperties: &admin.QueueProperties{
+				LockDuration: to.Ptr("PT5M"),
+			},
+		})
+		t.Cleanup(cleanup)
+
+		sender, err := serviceBusClient.NewSender(queueName, nil)
+		require.NoError(t, err)
+
+		err = sender.SendMessage(context.Background(), &Message{
+			Body: []byte("hello world"),
+		}, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { test.RequireClose(t, sender) })
+
+		receiver, err := serviceBusClient.NewReceiverForQueue(queueName, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { test.RequireClose(t, receiver) })
+
+		err = sender.SendMessage(context.Background(), &Message{Body: []byte("message one")}, nil)
+		require.NoError(t, err)
+
+		err = sender.SendMessage(context.Background(), &Message{Body: []byte("message two")}, nil)
+		require.NoError(t, err)
+
+		// a few experiments
+		messages, err := receiver.ReceiveMessages(context.Background(), 2, &ReceiveMessagesOptions{
+			TimeAfterFirstMessage: time.Second,
+		})
+		require.NoError(t, err)
+
+		var origLockTimes []time.Time
+
+		for _, msg := range messages {
+			origLockTimes = append(origLockTimes, *msg.LockedUntil)
+		}
+
+		return receiver, messages, origLockTimes
+	}
+
+	t.Run("RenewTwoMessages", func(t *testing.T) {
+		receiver, messages, origLockTimes := setup(t)
+
+		err := receiver.RenewMessageLocks(context.Background(), messages, nil)
+		require.NoError(t, err)
+
+		for i, m := range messages {
+			require.Greater(t, *m.LockedUntil, origLockTimes[i])
+		}
+	})
+
+	t.Run("RenewTwoMessagesButWithLockLost", func(t *testing.T) {
+		// NOTE: This, unfortunately, fais outright with a LockLost error. So we don't
+		// know if it succeeded for any messages at all (nor do we get back a new
+		// time to update the lock expiration field on the message). If we were
+		// to enable this it's going to be a bit unclear what went on.
+		receiver, messages, origLockTimes := setup(t)
+
+		// complete a single message so one of our lock tokens. In "single token"
+		// RenewLock() mode we would fail with a LockLost error.
+		err := receiver.CompleteMessage(context.Background(), messages[0], nil)
+		require.NoError(t, err)
+
+		// renew _all_ the messages, and see if we can get back a partial result that
+		// indicates which messages have succeeded, and which have failed.
+		err = receiver.RenewMessageLocks(context.Background(), messages, nil)
+		require.NoError(t, err)
+
+		for i, m := range messages {
+			require.Greater(t, *m.LockedUntil, origLockTimes[i])
+		}
+	})
+}
+
 func TestReceiverBackupSettlement(t *testing.T) {
 	serviceBusClient, cleanup, queueName := setupLiveTest(t, &liveTestOptions{
 		QueueProperties: &admin.QueueProperties{
