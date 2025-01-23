@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/log"
@@ -88,7 +87,7 @@ type PartitionProperties struct {
 	IsEmpty bool
 
 	// LastEnqueuedOffset is the offset of latest enqueued event.
-	LastEnqueuedOffset int64
+	LastEnqueuedOffset string
 
 	// LastEnqueuedOn is the date of latest enqueued event.
 	LastEnqueuedOn time.Time
@@ -223,12 +222,6 @@ func newPartitionProperties(amqpValue any) (PartitionProperties, error) {
 		return PartitionProperties{}, errors.New("invalid message format")
 	}
 
-	lastEnqueuedOffset, err := strconv.ParseInt(lastEnqueuedOffsetStr, 10, 64)
-
-	if err != nil {
-		return PartitionProperties{}, fmt.Errorf("invalid message format: %w", err)
-	}
-
 	lastEnqueuedTime, ok := m["last_enqueued_time_utc"].(time.Time)
 
 	if !ok {
@@ -244,7 +237,7 @@ func newPartitionProperties(amqpValue any) (PartitionProperties, error) {
 	return PartitionProperties{
 		BeginningSequenceNumber:    beginningSequenceNumber,
 		LastEnqueuedSequenceNumber: lastEnqueuedSequenceNumber,
-		LastEnqueuedOffset:         lastEnqueuedOffset,
+		LastEnqueuedOffset:         lastEnqueuedOffsetStr,
 		LastEnqueuedOn:             lastEnqueuedTime,
 		IsEmpty:                    isEmpty,
 		PartitionID:                partition,

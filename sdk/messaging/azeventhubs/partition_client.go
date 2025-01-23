@@ -36,7 +36,7 @@ type StartPosition struct {
 	// or inclusive, based on the Inclusive property.
 	// NOTE: offsets are not stable values, and might refer to different events over time
 	// as the Event Hub events reach their age limit and are discarded.
-	Offset *int64
+	Offset *string
 
 	// SequenceNumber will start the consumer after the specified sequence number. Can be exclusive
 	// or inclusive, based on the Inclusive property.
@@ -340,7 +340,7 @@ func getStartExpression(startPosition StartPosition) (string, error) {
 			return "", errMultipleFieldsSet
 		}
 
-		offsetExpr = fmt.Sprintf("amqp.annotation.x-opt-offset %s '%d'", gt, *startPosition.Offset)
+		offsetExpr = fmt.Sprintf("amqp.annotation.x-opt-offset %s '%s'", gt, *startPosition.Offset)
 	}
 
 	if startPosition.Latest != nil && *startPosition.Latest {
