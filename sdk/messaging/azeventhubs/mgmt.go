@@ -18,9 +18,10 @@ import (
 
 // EventHubProperties represents properties of the Event Hub, like the number of partitions.
 type EventHubProperties struct {
-	CreatedOn    time.Time
-	Name         string
-	PartitionIDs []string
+	CreatedOn      time.Time
+	Name           string
+	PartitionIDs   []string
+	IsGeoDREnabled bool
 }
 
 // GetEventHubPropertiesOptions contains optional parameters for the GetEventHubProperties function
@@ -63,7 +64,7 @@ func getEventHubPropertiesInternal(ctx context.Context, ns internal.NamespaceFor
 		},
 	}
 
-	resp, err := rpcLink.RPC(context.Background(), amqpMsg)
+	resp, err := rpcLink.RPC(ctx, amqpMsg)
 
 	if err != nil {
 		return EventHubProperties{}, err
@@ -97,6 +98,9 @@ type PartitionProperties struct {
 
 	// PartitionID is the partition ID of this partition.
 	PartitionID string
+
+	// GeoReplicationEnabled is true if Event Hubs Geographic Disaster Recovery is enabled.
+	GeoReplicationEnabled bool
 }
 
 // GetPartitionPropertiesOptions are the options for the GetPartitionProperties function.
@@ -163,25 +167,32 @@ func newEventHubProperties(amqpValue any) (EventHubProperties, error) {
 	partitionIDs, ok := m["partition_ids"].([]string)
 
 	if !ok {
-		return EventHubProperties{}, fmt.Errorf("invalid message format")
+		return EventHubProperties{}, fmt.Errorf("invalid value for partition_ids")
 	}
 
 	name, ok := m["name"].(string)
 
 	if !ok {
-		return EventHubProperties{}, fmt.Errorf("invalid message format")
+		return EventHubProperties{}, fmt.Errorf("invalid value for name")
 	}
 
 	createdOn, ok := m["created_at"].(time.Time)
 
 	if !ok {
-		return EventHubProperties{}, fmt.Errorf("invalid message format")
+		return EventHubProperties{}, fmt.Errorf("invalid value for created_at")
+	}
+
+	geoFactor, ok := eh.ConvertToInt64(m["georeplication_factor"])
+
+	if !ok {
+		return EventHubProperties{}, fmt.Errorf("invalid value for georeplication_factor")
 	}
 
 	return EventHubProperties{
-		Name:         name,
-		CreatedOn:    createdOn,
-		PartitionIDs: partitionIDs,
+		Name:           name,
+		CreatedOn:      createdOn,
+		PartitionIDs:   partitionIDs,
+		IsGeoDREnabled: geoFactor > 1,
 	}, nil
 }
 

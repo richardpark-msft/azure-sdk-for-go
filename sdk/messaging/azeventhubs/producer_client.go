@@ -213,6 +213,9 @@ func (pc *ProducerClient) newEventHubProducerLink(ctx context.Context, session a
 	sender, err := session.NewSender(ctx, entityPath, partitionID, &amqp.SenderOptions{
 		SettlementMode:              to.Ptr(amqp.SenderSettleModeMixed),
 		RequestedReceiverSettleMode: to.Ptr(amqp.ReceiverSettleModeFirst),
+		DesiredCapabilities: []string{
+			"com.microsoft:georeplication",
+		},
 	})
 
 	if err != nil {
