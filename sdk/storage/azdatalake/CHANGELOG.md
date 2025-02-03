@@ -1,6 +1,6 @@
 # Release History
 
-## 1.4.0-beta.2 (Unreleased)
+## 1.4.1-beta.1 (Unreleased)
 
 ### Features Added
 
@@ -9,6 +9,19 @@
 ### Bugs Fixed
 
 ### Other Changes
+
+## 1.4.0 (2025-01-27)
+
+### Features Added
+* Upgraded service version to `2025-01-05`.
+* Updated `azidentity` version to `1.8.1`
+
+### Bugs Fixed
+* Fix panic when invalid sas is passed to get-properties call. Fixes [#23912](https://github.com/Azure/azure-sdk-for-go/issues/23912)
+* Added NewListDirectoryPathPager. Fixes [#23852](https://github.com/Azure/azure-sdk-for-go/issues/23852), [#21083](https://github.com/Azure/azure-sdk-for-go/issues/21083), [#18921](https://github.com/Azure/azure-sdk-for-go/issues/18921)
+
+### Other Changes
+* Updated `azblob` version to `v1.6.0`
 
 ## 1.4.0-beta.1 (2025-01-15)
 

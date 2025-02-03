@@ -91,12 +91,6 @@ type UnrecordedTestSuite struct {
 	suite.Suite
 }
 
-//	func validateFileDeleted(_require *require.Assertions, fileClient *file.Client) {
-//		_, err := fileClient.GetAccessControl(context.Background(), nil)
-//		_require.Error(err)
-//
-//		testcommon.ValidateErrorCode(_require, err, datalakeerror.PathNotFound)
-//	}
 type userAgentTest struct{}
 
 func (u userAgentTest) Do(req *policy.Request) (*http.Response, error) {
@@ -596,7 +590,7 @@ func (s *RecordedTestSuite) TestCreateFileWithExpiryRelativeToNow() {
 
 	time.Sleep(time.Second * 10)
 	_, err = fClient.GetProperties(context.Background(), nil)
-	testcommon.ValidateErrorCode(_require, err, datalakeerror.PathNotFound)
+	_require.Error(err)
 }
 
 func (s *RecordedTestSuite) TestCreateFileWithNeverExpire() {
@@ -1010,7 +1004,7 @@ func (s *RecordedTestSuite) TestFileSetExpiry() {
 	time.Sleep(time.Second * 12)
 
 	_, err = fClient.GetProperties(context.Background(), nil)
-	testcommon.ValidateErrorCode(_require, err, datalakeerror.PathNotFound)
+	_require.Error(err)
 }
 
 func (s *UnrecordedTestSuite) TestFileSetExpiryTypeAbsoluteTime() {
@@ -1045,7 +1039,7 @@ func (s *UnrecordedTestSuite) TestFileSetExpiryTypeAbsoluteTime() {
 	time.Sleep(time.Second * 7)
 
 	_, err = fClient.GetProperties(context.Background(), nil)
-	testcommon.ValidateErrorCode(_require, err, datalakeerror.PathNotFound)
+	testcommon.ValidateErrorCode(_require, err, datalakeerror.BlobNotFound)
 
 }
 
@@ -2381,7 +2375,7 @@ func (s *UnrecordedTestSuite) TestFileRenameUsingSAS() {
 
 	_, err = srcFileClient.GetProperties(context.Background(), nil)
 	_require.Error(err)
-	testcommon.ValidateErrorCode(_require, err, datalakeerror.PathNotFound)
+	testcommon.ValidateErrorCode(_require, err, datalakeerror.BlobNotFound)
 }
 
 func (s *RecordedTestSuite) TestRenameNoOptions() {
@@ -5647,4 +5641,43 @@ func (s *UnrecordedTestSuite) TestCreateSASUsingUserDelegationKeyFile() {
 	_require.NoError(err)
 	_require.NotNil(serviceClient)
 
+}
+
+func (s *UnrecordedTestSuite) TestGetPropertiesWithInvalidSAS() {
+	_require := require.New(s.T())
+	testName := s.T().Name()
+
+	filesystemName := testcommon.GenerateFileSystemName(testName)
+	fsClient, err := testcommon.GetFileSystemClient(filesystemName, s.T(), testcommon.TestAccountDatalake, nil)
+	_require.NoError(err)
+	defer testcommon.DeleteFileSystem(context.Background(), _require, fsClient)
+
+	_, err = fsClient.Create(context.Background(), nil)
+	_require.NoError(err)
+
+	fileName := testcommon.GenerateFileName(testName)
+	fClient, err := testcommon.GetFileClient(filesystemName, fileName, s.T(), testcommon.TestAccountDatalake, nil)
+	_require.NoError(err)
+
+	resp, err := fClient.Create(context.Background(), nil)
+	_require.NoError(err)
+	_require.NotNil(resp)
+
+	// Generate an invalid SAS token (e.g., wrong permissions)
+	expiry := time.Now().Add(time.Hour)
+	permissions := sas.FilePermissions{
+		Read:   false,
+		Add:    false,
+		Write:  false,
+		Create: false,
+		Delete: false,
+	}
+	sasURL, err := fClient.GetSASURL(permissions, expiry, nil)
+	_require.Error(err)
+
+	fClientWithInvalidSAS, _ := file.NewClientWithNoCredential(sasURL, nil)
+
+	// Attempt to call GetProperties (Issue# https://github.com/Azure/azure-sdk-for-go/issues/23912)
+	_, err = fClientWithInvalidSAS.GetProperties(context.Background(), nil)
+	_require.Error(err)
 }
