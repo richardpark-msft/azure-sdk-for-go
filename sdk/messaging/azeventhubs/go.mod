@@ -8,7 +8,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.10.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.5.0
-	github.com/Azure/go-amqp v1.3.0
+	github.com/Azure/go-amqp v1.4.0-beta.1.0.20250204234810-99237a4f6521
 	github.com/coder/websocket v1.8.12
 	github.com/golang/mock v1.6.0
 	github.com/joho/godotenv v1.5.1
@@ -29,4 +29,8 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+replace (
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0 => /home/ripark/src/_/geodr/azeventhubs-beta-geodr/sdk/resourcemanager/eventhub/armeventhub
 )

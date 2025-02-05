@@ -214,7 +214,7 @@ func (pc *ProducerClient) newEventHubProducerLink(ctx context.Context, session a
 		SettlementMode:              to.Ptr(amqp.SenderSettleModeMixed),
 		RequestedReceiverSettleMode: to.Ptr(amqp.ReceiverSettleModeFirst),
 		DesiredCapabilities: []string{
-			"com.microsoft:georeplication",
+			internal.CapabilityGeoDRReplication,
 		},
 	})
 

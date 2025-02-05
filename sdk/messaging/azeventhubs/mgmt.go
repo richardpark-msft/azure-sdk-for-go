@@ -16,12 +16,19 @@ import (
 	"github.com/Azure/go-amqp"
 )
 
-// EventHubProperties represents properties of the Event Hub, like the number of partitions.
+// EventHubProperties represents properties of an event hub, like the number of partitions.
 type EventHubProperties struct {
-	CreatedOn      time.Time
-	Name           string
-	PartitionIDs   []string
-	IsGeoDREnabled bool
+	// CreatedOn is the time when the event hub was created.
+	CreatedOn time.Time
+
+	// Name of the event hub
+	Name string
+
+	// PartitionIDs for the event hub
+	PartitionIDs []string
+
+	// GeoReplication is true if the event hub has geo-replication enabled.
+	GeoReplication bool
 }
 
 // GetEventHubPropertiesOptions contains optional parameters for the GetEventHubProperties function
@@ -192,7 +199,7 @@ func newEventHubProperties(amqpValue any) (EventHubProperties, error) {
 		Name:           name,
 		CreatedOn:      createdOn,
 		PartitionIDs:   partitionIDs,
-		IsGeoDREnabled: geoFactor > 1,
+		GeoReplication: geoFactor > 1,
 	}, nil
 }
 

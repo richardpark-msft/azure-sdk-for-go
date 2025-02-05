@@ -222,7 +222,7 @@ func (pc *PartitionClient) newEventHubConsumerLink(ctx context.Context, session 
 		Properties:    props,
 		TargetAddress: pc.instanceID,
 		DesiredCapabilities: []string{
-			"com.microsoft:georeplication",
+			internal.CapabilityGeoDRReplication,
 		},
 	}
 

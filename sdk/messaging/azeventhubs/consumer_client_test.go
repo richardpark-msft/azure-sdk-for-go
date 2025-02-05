@@ -847,10 +847,6 @@ func TestConsumerClient_InstanceID(t *testing.T) {
 	require.Contains(t, err.Error(), fmt.Sprintf("Description: Receiver '%s' with a higher epoch '1' already exists. Receiver 'LosesBecauseOfLowOwnerLevel' with epoch 0 cannot be created. Make sure you are creating receiver with increasing epoch value to ensure connectivity, or ensure all old epoch receivers are closed or disconnected", instanceID))
 }
 
-func TestConsumerClient_GeoDR(t *testing.T) {
-	// https://learn.microsoft.com/azure/event-hubs/event-hubs-geo-dr
-}
-
 // mustSendEventsToAllPartitions sends the event given in evt to each partition in the
 // eventHub, returning the sequence number just before the new message.
 //
