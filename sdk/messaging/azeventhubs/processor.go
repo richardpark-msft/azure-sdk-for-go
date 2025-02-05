@@ -412,6 +412,10 @@ func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership,
 	// make sure we create the link _now_ - if we're stealing we want to stake a claim _now_, rather than
 	// later when the user actually calls ReceiveEvents(), since the acquisition of the link is lazy.
 	if err := partClient.init(ctx); err != nil {
+
+		// TODO: I think we can possibly handle restart ownership/partition stuff here.
+		adfasdfsadf
+
 		consumers.Delete(ownership.PartitionID)
 		_ = partClient.Close(ctx)
 		return err
