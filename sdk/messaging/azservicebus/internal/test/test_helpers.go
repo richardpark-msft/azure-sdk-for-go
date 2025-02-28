@@ -85,6 +85,10 @@ const (
 	EnvKeyConnectionStringNoManage   EnvKey = "SERVICEBUS_CONNECTION_STRING_NO_MANAGE"
 	EnvKeyConnectionStringSendOnly   EnvKey = "SERVICEBUS_CONNECTION_STRING_SEND_ONLY"
 	EnvKeyConnectionStringListenOnly EnvKey = "SERVICEBUS_CONNECTION_STRING_LISTEN_ONLY"
+
+	// these are emitted by the New-TestResources script.
+	EnvKeySubscription  EnvKey = "AZSERVICEBUS_SUBSCRIPTION_ID"
+	EnvKeyResourceGroup EnvKey = "AZSERVICEBUS_RESOURCE_GROUP"
 )
 
 func MustGetEnvVars[KeyT ~string](keys []KeyT) map[KeyT]string {

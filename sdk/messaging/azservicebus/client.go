@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -81,12 +82,25 @@ func NewClient(fullyQualifiedNamespace string, credential azcore.TokenCredential
 		return nil, errors.New("credential was nil")
 	}
 
+	fullyQualifiedNamespace = normalizeEndpoint(fullyQualifiedNamespace)
+
 	return newClientImpl(clientCreds{
 		credential:              credential,
 		fullyQualifiedNamespace: fullyQualifiedNamespace,
 	}, clientImplArgs{
 		ClientOptions: options,
 	})
+}
+
+func normalizeEndpoint(fullyQualifiedNamespace string) string {
+	// allow some wiggle room since other services, like ARM or the CLI, return the endpoint in https:// format,
+	// rather than just as a bare hostname.
+	fullyQualifiedNamespace = strings.Replace(fullyQualifiedNamespace, "https://", "", 1)
+
+	// they can also sometimes include the TLS port
+	fullyQualifiedNamespace = strings.Replace(fullyQualifiedNamespace, ":443", "", 1)
+
+	return strings.TrimSuffix(fullyQualifiedNamespace, "/")
 }
 
 // NewClientFromConnectionString creates a new Client for a Service Bus namespace using a connection string.

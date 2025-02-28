@@ -13,13 +13,13 @@ require (
 
 require (
 	// used in tests only
-	github.com/joho/godotenv v1.5.1
-	github.com/stretchr/testify v1.10.0
-)
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus v1.2.0
 
-require (
+	// used only in example*.go files
 	github.com/coder/websocket v1.8.12
 	github.com/golang/mock v1.6.0
+	github.com/joho/godotenv v1.5.1
+	github.com/stretchr/testify v1.10.0
 )
 
 require (

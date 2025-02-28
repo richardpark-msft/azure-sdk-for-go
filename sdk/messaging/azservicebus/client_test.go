@@ -19,6 +19,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/sas"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azservicebus/internal/test"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/servicebus/armservicebus"
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 )
@@ -552,6 +553,45 @@ func TestNewClientUnitTests(t *testing.T) {
 			RetryDelay:    6 * time.Hour,
 			MaxRetryDelay: 12 * time.Hour,
 		}, subscriptionReceiver.retryOptions)
+	})
+}
+
+func TestNormalizeEndpoint(t *testing.T) {
+	t.Run("normalizeEndpoint", func(t *testing.T) {
+		require.Equal(t, "test.servicebus.windows.net", normalizeEndpoint("https://test.servicebus.windows.net"))
+		require.Equal(t, "test.servicebus.windows.net", normalizeEndpoint("https://test.servicebus.windows.net/"))
+		require.Equal(t, "test.servicebus.windows.net", normalizeEndpoint("https://test.servicebus.windows.net:443"))
+		require.Equal(t, "test.servicebus.windows.net", normalizeEndpoint("https://test.servicebus.windows.net:443/"))
+		require.Equal(t, "test.servicebus.windows.net", normalizeEndpoint("test.servicebus.windows.net:443"))
+		require.Equal(t, "test.servicebus.windows.net", normalizeEndpoint("test.servicebus.windows.net"))
+	})
+
+	t.Run("useARMClient", func(t *testing.T) {
+		tokenCredential, err := azidentity.NewAzureCLICredential(nil)
+		require.NoError(t, err)
+
+		subscriptionID := test.MustGetEnvVar(t, test.EnvKeySubscription)
+		resourceGroup := test.MustGetEnvVar(t, test.EnvKeyResourceGroup)
+		hostnameNoSuffix := strings.Split(test.MustGetEnvVar(t, test.EnvKeyEndpoint), ".")[0]
+
+		armClient, err := armservicebus.NewNamespacesClient(subscriptionID, tokenCredential, nil)
+		require.NoError(t, err)
+
+		ns, err := armClient.Get(context.Background(), resourceGroup, hostnameNoSuffix, nil)
+		require.NoError(t, err)
+
+		t.Logf("ARM SB endpoint: %s", *ns.Properties.ServiceBusEndpoint)
+
+		client, err := NewClient(*ns.Properties.ServiceBusEndpoint, tokenCredential, nil)
+		require.NoError(t, err)
+
+		defer test.RequireClose(t, client)
+
+		sender, err := client.NewSender(test.BuiltInTestQueue, nil)
+		require.NoError(t, err)
+
+		err = sender.SendMessage(context.Background(), &Message{Body: []byte("hello world")}, nil)
+		require.NoError(t, err)
 	})
 }
 
