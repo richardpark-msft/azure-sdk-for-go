@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/internal/uuid"
@@ -66,7 +67,7 @@ type ConsumerClient struct {
 func NewConsumerClient(fullyQualifiedNamespace string, eventHub string, consumerGroup string, credential azcore.TokenCredential, options *ConsumerClientOptions) (*ConsumerClient, error) {
 	return newConsumerClient(consumerClientArgs{
 		consumerGroup:           consumerGroup,
-		fullyQualifiedNamespace: fullyQualifiedNamespace,
+		fullyQualifiedNamespace: normalizeEndpoint(fullyQualifiedNamespace),
 		eventHub:                eventHub,
 		credential:              credential,
 	}, options)
@@ -266,4 +267,15 @@ func getInstanceID(optionalID string) (string, error) {
 	}
 
 	return id.String(), nil
+}
+
+func normalizeEndpoint(fullyQualifiedNamespace string) string {
+	// allow some wiggle room since other services, like ARM or the CLI, return the endpoint in https:// format,
+	// rather than just as a bare hostname.
+	fullyQualifiedNamespace = strings.Replace(fullyQualifiedNamespace, "https://", "", 1)
+
+	// they can also sometimes include the TLS port
+	fullyQualifiedNamespace = strings.Replace(fullyQualifiedNamespace, ":443", "", 1)
+
+	return strings.TrimSuffix(fullyQualifiedNamespace, "/")
 }

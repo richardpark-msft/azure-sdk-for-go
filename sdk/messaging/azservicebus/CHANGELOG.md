@@ -1,5 +1,11 @@
 # Release History
 
+## 1.8.1 (TBD)
+
+### Features Added
+
+- Client can use endpoint formats that the Azure CLI or ARM return, like https://<your-namespace>.servicebus.windows.net:443. (PR#TBD)
+
 ## 1.8.0 (2025-02-11)
 
 ### Features Added

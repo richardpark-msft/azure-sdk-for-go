@@ -68,7 +68,7 @@ const anyPartitionID = ""
 // [azidentity]: https://github.com/Azure/azure-sdk-for-go/blob/main/sdk/azidentity
 func NewProducerClient(fullyQualifiedNamespace string, eventHub string, credential azcore.TokenCredential, options *ProducerClientOptions) (*ProducerClient, error) {
 	return newProducerClientImpl(producerClientCreds{
-		fullyQualifiedNamespace: fullyQualifiedNamespace,
+		fullyQualifiedNamespace: normalizeEndpoint(fullyQualifiedNamespace),
 		credential:              credential,
 		eventHub:                eventHub,
 	}, options)

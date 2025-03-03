@@ -566,15 +566,14 @@ func TestNormalizeEndpoint(t *testing.T) {
 		require.Equal(t, "test.servicebus.windows.net", normalizeEndpoint("test.servicebus.windows.net"))
 	})
 
-	t.Run("useARMClient", func(t *testing.T) {
-		tokenCredential, err := azidentity.NewAzureCLICredential(nil)
-		require.NoError(t, err)
+	t.Run("UseARMClientEndpoint", func(t *testing.T) {
+		iv := test.GetIdentityVars(t)
 
 		subscriptionID := test.MustGetEnvVar(t, test.EnvKeySubscription)
 		resourceGroup := test.MustGetEnvVar(t, test.EnvKeyResourceGroup)
 		hostnameNoSuffix := strings.Split(test.MustGetEnvVar(t, test.EnvKeyEndpoint), ".")[0]
 
-		armClient, err := armservicebus.NewNamespacesClient(subscriptionID, tokenCredential, nil)
+		armClient, err := armservicebus.NewNamespacesClient(subscriptionID, iv.Cred, nil)
 		require.NoError(t, err)
 
 		ns, err := armClient.Get(context.Background(), resourceGroup, hostnameNoSuffix, nil)
@@ -582,7 +581,7 @@ func TestNormalizeEndpoint(t *testing.T) {
 
 		t.Logf("ARM SB endpoint: %s", *ns.Properties.ServiceBusEndpoint)
 
-		client, err := NewClient(*ns.Properties.ServiceBusEndpoint, tokenCredential, nil)
+		client, err := NewClient(*ns.Properties.ServiceBusEndpoint, iv.Cred, nil)
 		require.NoError(t, err)
 
 		defer test.RequireClose(t, client)
