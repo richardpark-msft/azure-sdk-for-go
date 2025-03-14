@@ -15,8 +15,12 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/amqpwrap"
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/internal/exported"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 )
+
+//go:generate mockgen -source ./checkpoint_store.go -package azeventhubs -copyright_file ./internal/mock/testdata/copyright.txt -destination mock_checkpointstore_test.go CheckpointStore
+//go:generate mockgen -source ./processor.go -package azeventhubs -copyright_file ./internal/mock/testdata/copyright.txt -destination mock_processor_test.go consumerClientForProcessor
 
 func TestUnit_Processor_loadBalancing(t *testing.T) {
 	cps := newCheckpointStoreForTest()
@@ -321,6 +325,44 @@ func TestUnit_Processor_Run_cancellation(t *testing.T) {
 	// note that the cancellation here doesn't cause an error.
 	err = processor.Run(ctx)
 	require.NoError(t, err)
+}
+
+func TestUnit_Processor_newLazyCheckpointFunc(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	cps := NewMockCheckpointStore(ctrl)
+	cc := NewMockconsumerClientForProcessor(ctrl)
+
+	details := consumerClientDetails{
+		ConsumerGroup:           "myconsumergroup",
+		EventHubName:            "eventhub",
+		FullyQualifiedNamespace: "fqdn",
+	}
+
+	cc.EXPECT().getDetails().Return(details)
+
+	cps.EXPECT().ListCheckpoints(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), nil).Return(
+		[]Checkpoint{
+			{PartitionID: "0", ConsumerGroup: details.ConsumerGroup, EventHubName: details.EventHubName, FullyQualifiedNamespace: details.FullyQualifiedNamespace},
+			{PartitionID: "1", ConsumerGroup: details.ConsumerGroup, EventHubName: details.EventHubName, FullyQualifiedNamespace: details.FullyQualifiedNamespace},
+		}, nil,
+	)
+
+	p := &Processor{
+		checkpointStore: cps,
+		consumerClient:  cc,
+	}
+
+	getCheckpoint := p.newLazyCheckpointFunc()
+
+	// we'll make two calls, but the ListCheckpoints() function will only be called _once_.
+
+	cp0, err := getCheckpoint(context.Background(), "0")
+	require.NoError(t, err)
+	require.Equal(t, "0", cp0.PartitionID)
+
+	cp1, err := getCheckpoint(context.Background(), "1")
+	require.NoError(t, err)
+	require.Equal(t, "1", cp1.PartitionID)
 }
 
 // updateDynamicData updates the passed in `expected` Ownership with any fields that are

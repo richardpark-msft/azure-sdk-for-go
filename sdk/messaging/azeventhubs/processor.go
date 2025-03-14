@@ -331,17 +331,39 @@ func (p *Processor) initNextClientsCh(ctx context.Context) (EventHubProperties, 
 	return eventHubProperties, nil
 }
 
+type getCheckpoint func(ctx context.Context, partitionID string) (*Checkpoint, error)
+
+// newLazyCheckpointFunc creates a function that only initializes it's internal checkpoint
+// cache a single time. Just a factored out bit of code for use by [dispatch].
+func (p *Processor) newLazyCheckpointFunc() getCheckpoint {
+	once := &sync.Once{}
+	var checkpoints map[string]Checkpoint
+	var err error
+
+	return func(ctx context.Context, partitionID string) (*Checkpoint, error) {
+		once.Do(func() {
+			checkpoints, err = p.getCheckpointsMap(ctx)
+		})
+
+		if err != nil {
+			return nil, err
+		}
+
+		cp, ok := checkpoints[partitionID]
+
+		if !ok {
+			return nil, nil
+		}
+
+		return &cp, nil
+	}
+}
+
 // dispatch uses the checkpoint store to figure out which partitions should be processed by this
 // instance and starts a PartitionClient, if there isn't one.
 // NOTE: due to random number usage in the load balancer, this function is not thread safe.
 func (p *Processor) dispatch(ctx context.Context, eventHubProperties EventHubProperties, consumers *sync.Map) error {
 	ownerships, err := p.lb.LoadBalance(ctx, eventHubProperties.PartitionIDs)
-
-	if err != nil {
-		return err
-	}
-
-	checkpoints, err := p.getCheckpointsMap(ctx)
 
 	if err != nil {
 		return err
@@ -355,13 +377,15 @@ func (p *Processor) dispatch(ctx context.Context, eventHubProperties EventHubPro
 	copy(tmpOwnerships, ownerships)
 	p.currentOwnerships.Store(tmpOwnerships)
 
+	getCheckpoint := p.newLazyCheckpointFunc()
+
 	for _, ownership := range ownerships {
 		wg.Add(1)
 
 		go func(o Ownership) {
 			defer wg.Done()
 
-			err := p.addPartitionClient(ctx, o, checkpoints, consumers)
+			err := p.addPartitionClient(ctx, o, getCheckpoint, consumers)
 
 			if err != nil {
 				azlog.Writef(EventConsumer, "failed to create partition client for partition '%s': %s", o.PartitionID, err.Error())
@@ -375,7 +399,7 @@ func (p *Processor) dispatch(ctx context.Context, eventHubProperties EventHubPro
 }
 
 // addPartitionClient creates a ProcessorPartitionClient
-func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership, checkpoints map[string]Checkpoint, consumers *sync.Map) error {
+func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership, getCheckpoint getCheckpoint, consumers *sync.Map) error {
 	processorPartClient := &ProcessorPartitionClient{
 		consumerClientDetails: p.consumerClientDetails,
 		checkpointStore:       p.checkpointStore,
@@ -392,7 +416,13 @@ func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership,
 		return nil
 	}
 
-	sp, err := p.getStartPosition(checkpoints, ownership)
+	checkpoint, err := getCheckpoint(ctx, ownership.PartitionID)
+
+	if err != nil {
+		return err
+	}
+
+	sp, err := p.getStartPosition(checkpoint, ownership)
 
 	if err != nil {
 		return err
@@ -428,11 +458,10 @@ func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership,
 	}
 }
 
-func (p *Processor) getStartPosition(checkpoints map[string]Checkpoint, ownership Ownership) (StartPosition, error) {
+func (p *Processor) getStartPosition(cp *Checkpoint, ownership Ownership) (StartPosition, error) {
 	startPosition := p.defaultStartPositions.Default
-	cp, hasCheckpoint := checkpoints[ownership.PartitionID]
 
-	if hasCheckpoint {
+	if cp != nil {
 		if cp.Offset != nil {
 			startPosition = StartPosition{
 				Offset: cp.Offset,
