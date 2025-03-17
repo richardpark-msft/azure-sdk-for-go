@@ -72,7 +72,7 @@ resource eventHub 'Microsoft.EventHub/namespaces/eventhubs@2017-04-01' = {
   name: 'eventhub'
   properties: {
     messageRetentionInDays: 1
-    partitionCount: 4
+    partitionCount: 32
   }
   parent: namespace
 }
