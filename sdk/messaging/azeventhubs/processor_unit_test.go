@@ -599,6 +599,37 @@ func TestUnit_Processor_addPartitionClient(t *testing.T) {
 		pc, _ := consumers.Load("0")
 		require.Nil(t, pc)
 	})
+
+	t.Run("Invalid checkpoint", func(t *testing.T) {
+		// there's a small case where the Checkpoint could be invalid (you'd really have to force it to have that happen, but it
+		// is a branch in the code)
+		processor.nextClients = make(chan *ProcessorPartitionClient, 1)
+
+		consumers := &sync.Map{}
+
+		err := cps.SetCheckpoint(context.Background(), Checkpoint{
+			ConsumerGroup: "cg", EventHubName: "eh", FullyQualifiedNamespace: "fqdn", PartitionID: "0",
+			Offset: to.Ptr("100"), // ie, a legacy offset
+		}, nil)
+		require.NoError(t, err)
+
+		openPartitionClient := func(ctx context.Context, partitionID string, startPosition StartPosition) (partitionClient *PartitionClient, err error) {
+			require.Fail(t, "Should not be called in this case - we won't get this far")
+			return &PartitionClient{}, nil
+		}
+
+		err = cps.SetCheckpoint(context.Background(), Checkpoint{
+			ConsumerGroup: "cg", EventHubName: "eh", FullyQualifiedNamespace: "fqdn", PartitionID: "0",
+		}, nil)
+		require.NoError(t, err)
+
+		err = processor.addPartitionClient(context.Background(), Ownership{PartitionID: "0"}, getCheckpoints, openPartitionClient, consumers)
+		require.EqualError(t, err, "invalid checkpoint for 0, no offset or sequence number")
+
+		pc, ok := consumers.Load("0")
+		require.False(t, ok, "no consumer will have been stored, since we didn't even initialize it")
+		require.Nil(t, pc)
+	})
 }
 
 // updateDynamicData updates the passed in `expected` Ownership with any fields that are

@@ -1,14 +1,10 @@
 # Release History
 
-## 2.0.1-beta.1 (Unreleased)
-
-### Features Added
-
-### Breaking Changes
+## 2.0.1 (Unreleased)
 
 ### Bugs Fixed
 
-### Other Changes
+- Fixed a hard-to-reach bug where an invalid checkpoint could cause a Processor to never create a ProcessorPartitionClient for a partition. (PR#TBD)
 
 ## 2.0.0 (2025-06-10)
 

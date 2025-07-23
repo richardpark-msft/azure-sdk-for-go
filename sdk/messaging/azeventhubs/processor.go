@@ -283,6 +283,7 @@ func (p *Processor) Run(ctx context.Context) error {
 
 func (p *Processor) runImpl(ctx context.Context) error {
 	consumers := &sync.Map{}
+
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -407,6 +408,10 @@ func (p *Processor) openPartitionClientImpl(ctx context.Context, partitionID str
 }
 
 // addPartitionClient creates a ProcessorPartitionClient
+// ownership - the checkpoint Ownership record for a single partition.
+// getCheckpoints - a function that can retrieve checkpoints. The actual implementation is lazy, so we don't load checkpoints if we're not actually going to create a partition client.
+// openPartitionClient - a function that creates a live PartitionClient. (parameterized for testing)
+// consumers - used to store all created PartitionClients so they can be closed when the Processor stops, and also prevents more than one PartitionClient from being created per-partition.
 func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership, getCheckpoints getCheckpoints, openPartitionClient openPartitionClient, consumers *sync.Map) error {
 	processorPartClient := &ProcessorPartitionClient{
 		consumerClientDetails: p.consumerClientDetails,
@@ -418,6 +423,8 @@ func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership,
 		},
 	}
 
+	// Prevent creating more than one partition client per partition ID. This client doesn't get returned immediately - it has to go through all
+	// the checks below, and only then is it added to the p.nextClients channel, which then gets returned from `processor.NextPartitionClient`
 	if _, alreadyExists := consumers.LoadOrStore(ownership.PartitionID, processorPartClient); alreadyExists {
 		return nil
 	}
@@ -425,6 +432,7 @@ func (p *Processor) addPartitionClient(ctx context.Context, ownership Ownership,
 	preferredStartPosition, err := p.getStartPosition(getCheckpoints, ownership)
 
 	if err != nil {
+		consumers.Delete(ownership.PartitionID)
 		return err
 	}
 
